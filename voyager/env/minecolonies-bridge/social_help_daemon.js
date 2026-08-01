@@ -31,6 +31,10 @@ const HELPER_ID = process.env.SOCIAL_HELP_HELPER_ID == null ? null :
 const EVENT_FILE = process.env.SOCIAL_HELP_EVENT_FILE || path.join(__dirname, "social_help_events.jsonl");
 const RUNTIME_FILE = process.env.SOCIAL_HELP_RUNTIME_FILE || path.join(__dirname, "social_help_runtime.json");
 const PID_FILE = process.env.SOCIAL_HELP_PID_FILE || path.join(__dirname, "social_help.pid");
+const PURSUIT_TIMEOUT_MS = parseInt(process.env.SOCIAL_HELP_PURSUIT_TIMEOUT_MS || "15000", 10);
+const PURSUIT_POLL_MS = parseInt(process.env.SOCIAL_HELP_PURSUIT_POLL_MS || "250", 10);
+const PURSUIT_RETARGET_MS = parseInt(process.env.SOCIAL_HELP_PURSUIT_RETARGET_MS || "2000", 10);
+const TRANSFER_DISTANCE = parseInt(process.env.SOCIAL_HELP_TRANSFER_DISTANCE || "6", 10);
 
 const FOOD_ITEMS = [
   "minecolonies:steak_dinner", "minecolonies:fish_dinner", "minecolonies:schnitzel",
@@ -112,11 +116,17 @@ function rankHelpers(recipient, colony, graph, dynamics, gameTime) {
   return ranked.sort((a, b) => b.score - a.score || a.distance - b.distance || a.helper.id - b.helper.id);
 }
 
-function selectFood(inventory) {
+function selectFood(inventory, recipientInventory) {
   const counts = new Map((inventory.items || []).map((x) => [x.item, x.count]));
+  const recipientCounts = new Map(((recipientInventory && recipientInventory.items) || [])
+    .map((x) => [x.item, x.count]));
   // Keep one item in the helper's possession so helping never consumes their
-  // final meal. The chosen unit is an actual transfer, not resource creation.
-  return FOOD_ITEMS.find((item) => (counts.get(item) || 0) >= 2) || null;
+  // final meal. Prefer a meal absent from the recipient's inventory: the
+  // MineColonies food-history rule rewards variety, so social help should not
+  // hand over a duplicate when a novel dinner is available.
+  return FOOD_ITEMS.filter((item) => (counts.get(item) || 0) >= 2)
+    .sort((a, b) => (recipientCounts.get(a) || 0) - (recipientCounts.get(b) || 0) ||
+      FOOD_ITEMS.indexOf(a) - FOOD_ITEMS.indexOf(b))[0] || null;
 }
 
 async function request(method, route) {
@@ -150,26 +160,48 @@ async function waitForMove(citizenId, timeoutMs) {
   throw new Error("move wait timed out");
 }
 
-async function executeHelp(helper, recipient, item) {
+async function executeHelp(helper, recipient, item, opts) {
+  const o = opts || {};
+  const getColony = o.fetchColony || fetchColony;
+  const call = o.request || request;
+  const sleep = o.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const now = o.nowMs || Date.now;
+  const timeoutMs = o.timeoutMs || PURSUIT_TIMEOUT_MS;
+  const pollMs = o.pollMs || PURSUIT_POLL_MS;
+  const retargetMs = o.retargetMs || PURSUIT_RETARGET_MS;
+  const maxDistance = o.maxDistance || TRANSFER_DISTANCE;
+  const deadline = now() + timeoutMs;
+  let nextRetarget = 0;
   let lastError = null;
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    const latest = await fetchColony();
+  while (now() < deadline) {
+    const latest = await getColony();
+    const currentHelper = latest.citizens.find((x) => x.id === helper.id);
     const currentRecipient = latest.citizens.find((x) => x.id === recipient.id);
+    if (!currentHelper || !currentHelper.position) throw new Error("helper has no live position");
     if (!currentRecipient || !currentRecipient.position) throw new Error("recipient has no live position");
-    await request("POST", `/moveCitizen?colonyId=${COLONY_ID}&citizenId=${helper.id}` +
-      `&x=${currentRecipient.position.x}&y=${currentRecipient.position.y}&z=${currentRecipient.position.z}` +
-      `&range=3&timeout=1200`);
-    await waitForMove(helper.id, 45000);
-    try {
-      return await request("POST", `/transferCitizenItem?colonyId=${COLONY_ID}` +
-        `&fromCitizenId=${helper.id}&toCitizenId=${recipient.id}` +
-        `&item=${encodeURIComponent(item)}&count=1&maxDistance=6`);
-    } catch (error) {
-      lastError = error;
-      if (!String(error.message || error).includes("blocks apart")) throw error;
+
+    // Transfer as soon as the live positions overlap. Waiting for an arrival
+    // at the recipient's old position loses the target at accelerated tickrate.
+    if (distance(currentHelper.position, currentRecipient.position) <= maxDistance) {
+      try {
+        return await call("POST", `/transferCitizenItem?colonyId=${COLONY_ID}` +
+          `&fromCitizenId=${helper.id}&toCitizenId=${recipient.id}` +
+          `&item=${encodeURIComponent(item)}&count=1&maxDistance=${maxDistance}`);
+      } catch (error) {
+        lastError = error;
+        if (!String(error.message || error).includes("blocks apart")) throw error;
+      }
     }
+
+    if (now() >= nextRetarget) {
+      await call("POST", `/moveCitizen?colonyId=${COLONY_ID}&citizenId=${helper.id}` +
+        `&x=${currentRecipient.position.x}&y=${currentRecipient.position.y}&z=${currentRecipient.position.z}` +
+        `&range=3&timeout=1200`);
+      nextRetarget = now() + retargetMs;
+    }
+    await sleep(pollMs);
   }
-  throw lastError || new Error("help transfer failed after movement");
+  throw lastError || new Error("help pursuit timed out before citizens met");
 }
 
 async function runCycle(opts) {
@@ -198,8 +230,10 @@ async function runCycle(opts) {
   if (!ranked.length) return { status: "no-helper", recipientId: recipient.id };
   const candidate = ranked[0];
   const helper = candidate.helper;
-  const inventory = o.fetchInventory ? await o.fetchInventory(helper.id) : await fetchInventory(helper.id);
-  const item = selectFood(inventory);
+  const getInventory = o.fetchInventory || fetchInventory;
+  const inventory = await getInventory(helper.id);
+  const recipientInventory = await getInventory(recipient.id);
+  const item = selectFood(inventory, recipientInventory);
   const helperPersona = P.get(personas, helper.id);
   const helperState = {
     ...(dynamics.citizens[String(helper.id)] || {}),

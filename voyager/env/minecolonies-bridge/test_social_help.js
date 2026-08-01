@@ -38,6 +38,34 @@ function fixture() {
   assert.strictEqual(H.liveNutritionBand({ saturation: 6.1 }), "fed");
   assert.strictEqual(H.selectFood({ items: [{ item: "minecolonies:borscht", count: 1 }] }), null);
   assert.strictEqual(H.selectFood({ items: [{ item: "minecolonies:borscht", count: 2 }] }), "minecolonies:borscht");
+  assert.strictEqual(H.selectFood({ items: [
+    { item: "minecolonies:steak_dinner", count: 3 },
+    { item: "minecolonies:fish_dinner", count: 2 },
+  ] }, { items: [{ item: "minecolonies:steak_dinner", count: 1 }] }), "minecolonies:fish_dinner");
+
+  let pursuitTime = 0;
+  let pursuitSnapshot = 0;
+  const pursuitCalls = [];
+  const pursuit = await H.executeHelp(
+    { id: 1 }, { id: 2 }, "minecolonies:borscht", {
+      nowMs: () => pursuitTime,
+      sleep: async (ms) => { pursuitTime += ms; },
+      pollMs: 250,
+      retargetMs: 500,
+      timeoutMs: 2000,
+      fetchColony: async () => ({ citizens: [
+        { id: 1, position: { x: Math.min(pursuitSnapshot++ * 3, 6), y: 64, z: 0 } },
+        { id: 2, position: { x: 10, y: 64, z: 0 } },
+      ] }),
+      request: async (method, route) => {
+        pursuitCalls.push({ method, route });
+        return route.startsWith("/transferCitizenItem") ? { result: "transferred" } : { result: "moving" };
+      },
+    }
+  );
+  assert.strictEqual(pursuit.result, "transferred");
+  assert.ok(pursuitCalls.some((x) => x.route.startsWith("/moveCitizen")));
+  assert.ok(pursuitCalls.some((x) => x.route.startsWith("/transferCitizenItem")));
 
   const f = fixture();
   const ranked = H.rankHelpers(f.colony.citizens[1], f.colony, f.graph, f.dynamics);

@@ -186,18 +186,36 @@ const HIGH_DRAIN_COUNT = 8;
 const feedRotation = new Map(); // citizenId -> next index into FEED_ITEMS
 const FEED_COOLDOWN_MS = (10 * 60 * 1000) / TICK_MULTIPLIER;
 const lastFed = new Map(); // citizenId -> timestamp of last delivery
+// Optional first-response window for embodied citizen-to-citizen help. It is
+// disabled by default so the welfare safety net is unchanged unless the
+// social-help daemon is deliberately enabled alongside it.
+const SOCIAL_HELP_GRACE_MS = Math.max(0,
+  parseInt(process.env.SOCIAL_HELP_GRACE_MS || "0", 10) || 0);
+const hungryObservedAt = new Map(); // citizenId -> real timestamp first seen below threshold
+
+function socialHelpGraceRemaining(observedAt, citizenId, now, graceMs) {
+  if (graceMs <= 0) return 0;
+  if (!observedAt.has(citizenId)) observedAt.set(citizenId, now);
+  return Math.max(0, graceMs - (now - observedAt.get(citizenId)));
+}
 
 async function feedHungryCitizens(colony, cycle) {
   let fed = 0;
+  const hungryNow = new Set();
   for (const citizen of colony.citizens || []) {
     if (typeof citizen.saturation !== "number") continue;
     if (citizen.saturation >= FEED_BELOW_SATURATION) continue;
+    hungryNow.add(citizen.id);
     // Sick citizens can't reach the EATING state (CitizenAI checks SICK
     // first), so bread only piles up until the inventory is full - which
     // then makes the cure delivery bounce and the citizen stays sick
     // forever (the 2026-07-04 23-sick-citizens incident). Cure first,
     // feed after.
     if (citizen.sick) continue;
+    const graceRemaining = socialHelpGraceRemaining(
+      hungryObservedAt, citizen.id, Date.now(), SOCIAL_HELP_GRACE_MS
+    );
+    if (graceRemaining > 0) continue;
     const last = lastFed.get(citizen.id) || 0;
     if (Date.now() - last < FEED_COOLDOWN_MS) continue;
     const idx = feedRotation.get(citizen.id) || 0;
@@ -211,6 +229,9 @@ async function feedHungryCitizens(colony, cycle) {
     );
     fed++;
     await sleep(RESOLVE_DELAY_MS);
+  }
+  for (const citizenId of hungryObservedAt.keys()) {
+    if (!hungryNow.has(citizenId)) hungryObservedAt.delete(citizenId);
   }
   return fed;
 }
@@ -1164,4 +1185,7 @@ if (require.main === module) {
   loop().catch((e) => console.error("FATAL", e));
 }
 
-module.exports = { shouldTaper, computeTapered, colonyAgeDays, recordProducerActivity, producerActive, staffUniversities, isResearchLimited, CORE_JOBS };
+module.exports = {
+  shouldTaper, computeTapered, colonyAgeDays, recordProducerActivity, producerActive,
+  staffUniversities, isResearchLimited, socialHelpGraceRemaining, CORE_JOBS,
+};
