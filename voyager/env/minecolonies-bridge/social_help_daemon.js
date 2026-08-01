@@ -10,13 +10,18 @@ const path = require("path");
 const P = require("./personas.js");
 const S = require("./social_graph.js");
 const D = require("./social_dynamics.js");
-const A = require("./social_appraisal.js");
+const A1 = require("./social_appraisal.js");
+const A2 = require("./social_appraisal_v2.js");
 const Q = require("./social_action_queue.js");
 
 const BRIDGE = process.env.BRIDGE || "http://localhost:8089";
 const COLONY_ID = parseInt(process.env.COLONY_ID || "1", 10);
 const POLL_MS = parseInt(process.env.SOCIAL_HELP_POLL_MS || "30000", 10);
 const EXECUTE = process.env.SOCIAL_HELP_EXECUTE === "true";
+// v2 remains opt-in until its experimental weights have been validated by
+// comparison and embodied shadow runs. The already-observed v1 is the safe
+// operational default.
+const APPRAISAL_MODEL = process.env.SOCIAL_HELP_APPRAISAL_MODEL || "v1";
 const NEED_BAND = process.env.SOCIAL_HELP_NEED_BAND || "starving";
 const COOLDOWN_TICKS = parseInt(process.env.SOCIAL_HELP_COOLDOWN_TICKS || "12000", 10);
 const RECIPIENT_ID = process.env.SOCIAL_HELP_RECIPIENT_ID == null ? null :
@@ -206,7 +211,10 @@ async function runCycle(opts) {
     nutritionBand: liveNutritionBand(recipient),
     sick: !!recipient.sick,
   };
-  const decision = A.decideHelp({
+  const appraisalModel = o.appraisalModel || APPRAISAL_MODEL;
+  const engine = appraisalModel === "v1" ? A1 : appraisalModel === "v2" ? A2 : null;
+  if (!engine) throw new Error(`unknown appraisal model ${appraisalModel}`);
+  const decision = engine.decideHelp({
     helperPersona,
     helperState,
     recipientState,
@@ -227,6 +235,7 @@ async function runCycle(opts) {
     helperId: helper.id, helperName: helper.name,
     recipientId: recipient.id, recipientName: recipient.name,
     item, candidateRankScore: candidate.score,
+    appraisalModel: decision.appraisal.model,
   };
   appendLog("help_decided", { ...base, decision }, o.eventFile, o.now);
 
@@ -278,7 +287,10 @@ function acquirePidfile() {
 
 async function main() {
   acquirePidfile();
-  appendLog("start", { execute: EXECUTE, pollMs: POLL_MS, needBand: NEED_BAND });
+  appendLog("start", {
+    execute: EXECUTE, pollMs: POLL_MS, needBand: NEED_BAND,
+    appraisalModel: APPRAISAL_MODEL,
+  });
   const once = process.argv.includes("--once");
   do {
     try {

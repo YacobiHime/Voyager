@@ -58,6 +58,7 @@ function fixture() {
   const result = await H.runCycle({
     ...f,
     execute: true,
+    appraisalModel: "v2",
     decisionMode: "max",
     fetchInventory: async () => ({ items: [{ item: "minecolonies:borscht", count: 3 }] }),
     executeHelp: async () => ({ result: "ok" }),
@@ -69,6 +70,7 @@ function fixture() {
   assert.strictEqual(result.status, "succeeded");
   assert.strictEqual(result.helperId, 1);
   assert.strictEqual(result.recipientId, 2);
+  assert.strictEqual(result.appraisalModel, "voyager-appraisal-v2");
   const action = JSON.parse(fs.readFileSync(path.join(dir, "actions.jsonl"), "utf8").trim());
   assert.strictEqual(action.type, "help_succeeded");
   assert.ok(fs.readFileSync(path.join(dir, "help.jsonl"), "utf8").includes("help_decided"));
@@ -77,6 +79,7 @@ function fixture() {
   const shadow = await H.runCycle({
     ...f,
     execute: false,
+    appraisalModel: "v2",
     decisionMode: "max",
     fetchInventory: async () => ({ items: [{ item: "minecolonies:borscht", count: 3 }] }),
     eventFile: path.join(dir, "shadow.jsonl"),
@@ -87,10 +90,24 @@ function fixture() {
   assert.strictEqual(shadow.status, "shadow");
   assert.strictEqual(fs.existsSync(shadowRuntime), false, "shadow mode must not consume cooldown");
 
+  const legacy = await H.runCycle({
+    ...f,
+    execute: false,
+    appraisalModel: "v1",
+    decisionMode: "max",
+    fetchInventory: async () => ({ items: [{ item: "minecolonies:borscht", count: 3 }] }),
+    eventFile: path.join(dir, "legacy-v1.jsonl"),
+    actionFile: path.join(dir, "legacy-v1-actions.jsonl"),
+    runtimeFile: path.join(dir, "legacy-v1-runtime.json"),
+    now: "legacy-time",
+  });
+  assert.strictEqual(legacy.appraisalModel, "voyager-appraisal-v1");
+
   const failedRuntime = path.join(dir, "failed-runtime.json");
   const failed = await H.runCycle({
     ...f,
     execute: true,
+    appraisalModel: "v2",
     decisionMode: "max",
     fetchInventory: async () => ({ items: [{ item: "minecolonies:borscht", count: 3 }] }),
     executeHelp: async () => { throw new Error("move timeout"); },
@@ -105,6 +122,7 @@ function fixture() {
   const unable = await H.runCycle({
     ...f,
     execute: true,
+    appraisalModel: "v2",
     decisionMode: "max",
     fetchInventory: async () => ({ items: [] }),
     eventFile: path.join(dir, "unable.jsonl"),
