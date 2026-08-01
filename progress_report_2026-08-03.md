@@ -128,3 +128,4 @@
 
 - `4c9a7fc` — 誤死亡自己修復、名前同期、週次報告開始（両remoteへpush済み）
 - `68fdcf2` — Phase 3 appraisal・有向関係・身体化された援助閉ループ（両remoteへpush済み）
+- `e253513` — Phase 3.5時間的関係・比較runner・Phase 4局所情報伝播（両remoteへpush済み）
