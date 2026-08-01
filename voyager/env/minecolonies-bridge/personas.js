@@ -277,6 +277,19 @@ function markDeceased(store, citizenId, when) {
   return p;
 }
 
+// Reverse a provisional death when MineColonies reports the same citizen id
+// again.  /status can temporarily omit citizen data, so absence-based death
+// detection is not authoritative.  Keeping this transition reversible avoids
+// permanently corrupting the persona/family ledger after a long chunk unload.
+function markAlive(store, citizenId, liveName) {
+  const p = get(store, citizenId);
+  if (!p || !p.deceased) return p;
+  p.deceased = false;
+  p.deceasedAt = null;
+  if (liveName) p.name = liveName;
+  return p;
+}
+
 // Happiness-weighted sampling of `count` distinct entries from
 // [{id, happiness}, ...]. Fallback parent lottery (P-D3 step 2) when
 // MineColonies parent names can't be resolved - selection pressure still
@@ -320,6 +333,7 @@ module.exports = {
   mutate,
   makeChildPersona,
   markDeceased,
+  markAlive,
   weightedSample,
   gaussian,
 };

@@ -9,9 +9,10 @@
 //     can't be resolved, two adults are drawn by happiness-weighted lottery
 //     and marked parentsSynthesized:true - selection pressure still flows
 //     through happiness.
-//   - a citizen id missing for 3 consecutive polls = death -> deceased mark
-//     (never deleted; family tree). One missed poll is NOT death: chunk
-//     unloads can drop citizens from the list temporarily.
+//   - a citizen id missing for 3 consecutive polls = provisional death ->
+//     deceased mark (never deleted; family tree). If the same id later
+//     reappears, automatically reverse the mark because /status absence is not
+//     authoritative proof of death.
 //
 // Live wiring is the operator's job; everything here is driven through
 // processStatus() so test_persona.js can feed it mock /status fixtures.
@@ -59,6 +60,39 @@ function processStatus(store, citizens, state, opts) {
   for (const c of citizens) {
     byId.set(c.id, c);
     if (c.name) byName.set(c.name, c);
+  }
+
+  // A long transient omission can pass the absence threshold.  Reconcile it
+  // before birth detection so an existing persona is restored, not replaced.
+  for (const c of citizens) {
+    const persona = P.get(store, c.id);
+    if (!persona || !persona.deceased) continue;
+    P.markAlive(store, c.id, c.name);
+    if (state.missingCounts[c.id]) delete state.missingCounts[c.id];
+    events.push({
+      event: "restored",
+      citizenId: c.id,
+      name: c.name || persona.name,
+      reason: "citizen-reappeared-after-absence",
+    });
+    changed = true;
+  }
+
+  // Citizen display names can change while the stable MineColonies id and
+  // lineage remain the same. Keep the persona ledger readable without
+  // replacing the inherited persona or treating a rename as a new birth.
+  for (const c of citizens) {
+    const persona = P.get(store, c.id);
+    if (!persona || !c.name || persona.name === c.name) continue;
+    const previousName = persona.name;
+    persona.name = c.name;
+    events.push({
+      event: "identity_updated",
+      citizenId: c.id,
+      previousName,
+      name: c.name,
+    });
+    changed = true;
   }
 
   // --- new citizens ---

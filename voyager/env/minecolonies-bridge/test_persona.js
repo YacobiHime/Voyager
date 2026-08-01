@@ -300,6 +300,48 @@ test("daemon: reappearing citizen resets the missing counter", () => {
   assert.ok(!P.get(store, 2).deceased, "reset counter still led to premature death");
 });
 
+test("daemon: citizen reappearing after provisional death is restored", () => {
+  const store = P.emptyStore();
+  const state = { baselineDone: false, missingCounts: {} };
+  const all = [mockCitizen(1, "Ann"), mockCitizen(2, "Bob")];
+  daemon.processStatus(store, all, state, { templates, rng: mulberry32(56) });
+
+  const without2 = [all[0]];
+  for (let i = 0; i < daemon.DEATH_CONFIRM_POLLS; i++) {
+    daemon.processStatus(store, without2, state, { templates, rng: mulberry32(56) });
+  }
+  assert.strictEqual(P.get(store, 2).deceased, true);
+
+  const renamed = [all[0], mockCitizen(2, "Robert")];
+  const { changed, events } = daemon.processStatus(store, renamed, state, {
+    templates,
+    rng: mulberry32(56),
+  });
+  assert.strictEqual(changed, true);
+  assert.ok(events.some((e) => e.event === "restored" && e.citizenId === 2));
+  assert.strictEqual(P.get(store, 2).deceased, false);
+  assert.strictEqual(P.get(store, 2).deceasedAt, null);
+  assert.strictEqual(P.get(store, 2).name, "Robert");
+});
+
+test("daemon: live name changes synchronize without replacing persona", () => {
+  const store = P.emptyStore();
+  const state = { baselineDone: false, missingCounts: {} };
+  const original = mockCitizen(1, "Ann");
+  daemon.processStatus(store, [original], state, { templates, rng: mulberry32(57) });
+  const before = JSON.parse(JSON.stringify(P.get(store, 1).segments));
+
+  const renamed = mockCitizen(1, "Anne");
+  const { changed, events } = daemon.processStatus(store, [renamed], state, {
+    templates,
+    rng: mulberry32(57),
+  });
+  assert.strictEqual(changed, true);
+  assert.ok(events.some((e) => e.event === "identity_updated" && e.previousName === "Ann" && e.name === "Anne"));
+  assert.strictEqual(P.get(store, 1).name, "Anne");
+  assert.deepStrictEqual(P.get(store, 1).segments, before);
+});
+
 // ---------- daemon: deceased citizens don't re-trigger, no churn ----------
 
 test("daemon: steady state produces no events and no changes", () => {
