@@ -54,6 +54,10 @@ spawnAgent() → bot.spawn → turn(name) ループ(4.5秒ごとに自分自身�
 | `council.js` | 複数のLLM「知事」ペルソナが交代でコロニー運営方針を議論・実行するメインループ |
 | `supply_bot.js` | council.jsと並走し、全市民のオープンリクエストを6秒ごとに自動解決するサポートスクリプト |
 | `social_appraisal.js` | P1特性・価値・関係・状態から援助判断と説明可能な寄与を計算 |
+| `social_cognition.js` | P1から価値・動機・欲求・規範・対処・感情力学・goalをtrace付きで導出 |
+| `social_appraisal_v2.js` | 詳細認知profileをhelp/refuseへ接続する実験的appraisal（v1が運用既定） |
+| `persona_profile_report.js` | 生存市民の詳細profileと次元別分布をJSON出力 |
+| `social_cognition_experiment.js` | 同一場面・同一乱数でappraisal v1/v2を比較 |
 | `social_help_daemon.js` | 困窮検出→相手選択→実移動→既存食料移転を行うPhase 3 daemon |
 | `social_action_queue.js` | 行動daemonから単一writerのsocial_observerへ結果を渡すappend-onlyキュー |
 | `social_experiment.js` | 同一入力・同一乱数で4条件の援助判断を比較する反実仮想runner |

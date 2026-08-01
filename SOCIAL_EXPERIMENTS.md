@@ -57,6 +57,24 @@ Minecraftへの移動・戦闘命令は出さない。同一脅威はTTL内で�
 node social_information_daemon.js --once
 ```
 
+## 詳細認知profileとappraisal v2の比較
+
+Phase 3.6ではP1を変更せず、価値、動機、欲求優先度、規範、対処、感情力学、意思決定傾向、
+状況依存goalを導出する`voyager-cognition-v1`を追加した。定義と主張範囲は
+`COGNITIVE_MODEL.md`を参照する。
+
+```bash
+node persona_profile_report.js --output=persona_profile_results/current_v1.json
+node social_cognition_experiment.js \
+  --repeats=50 --seed=cognition-live-v2 \
+  --output=social_cognition_results/cognition_live_v2.json
+```
+
+比較runnerは同じ222場面へv1/v2を適用し、確率的判断だけでなく`mode=max`の決定論的判断も比較する。
+2026-08-01の結果は、確率的援助率v1=0.7003、v2=0.6032、不一致率0.1001。
+決定論的援助率v1=0.6892、v2=0.6171、不一致16/222（0.0721）だった。
+v2 configはversion 2、statusは`experimental-unvalidated`で、本実験の固定係数ではない。
+
 ## 時間的関係の更新規則
 
 - 援助成功: 受益者→援助者のtrust `+0.08`、affinity `+0.05`、obligation `+0.10`、gratitude `+0.18`。

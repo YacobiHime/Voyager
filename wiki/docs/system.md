@@ -128,6 +128,12 @@ MineColonies 本体のバグや癖に対して、bridge 側で以下のような
 - `social_observer.js`: 同居・親子・職場などの関係グラフと、感情・信頼・義理の動的状態を更新する
 - `social_help_daemon.js`: 困窮を検出し、関係者から援助者を選び、appraisalの判断根拠を保存する。実行時は
   援助者を相手まで歩かせ、所持している食料だけを移転する
+- `social_cognition.js`: P1から価値、動機、欲求優先度、規範、対処、感情力学、意思決定傾向を
+  寄与trace付きで導出する。これらは心理測定値ではなく比較実験用の操作的構成概念
+- `social_appraisal_v2.js`: 詳細認知profile、関係、困窮、距離、資源を状況依存goalと予期感情へ変換し、
+  help/refuseの各寄与を保存する実験モデル。未較正のため運用既定はv1
+- `persona_profile_report.js`: 生存市民の認知profileと次元別の平均・標準偏差・最小・最大を出力する
+- `social_cognition_experiment.js`: 同じ場面と乱数でappraisal v1/v2の確率的・決定論的判断を比較する
 - `social_action_queue.js`: 行動結果をappend-onlyで受け渡し、observerがoffsetにより一度だけ関係へ反映する
 - `social_experiment.js`: 同じ市民ペアを全員同一／ペルソナ／関係／時間的記憶の4条件で比較する
 - `social_information.js`: 脅威警報を社会グラフ上で局所伝播し、受容・再伝達・経路を記録する
@@ -137,6 +143,9 @@ MineColonies 本体のバグや癖に対して、bridge 側で以下のような
 これにより、援助を受けた側だけが強い信頼や返礼義務を持つ状態を表現できます。現在、援助daemonは
 限定試験のみで、連続自動実行は係数較正前のため停止しています。Phase 3.5以降は相手別のgratitude、
 resentment、援助・拒否履歴も保持し、感情はgameTimeに基づいて減衰、恩義は返礼行動で消費します。
+
+詳細認知層はP1の7特性を正本のまま使うため、既存市民と遺伝履歴を変更しません。導出次元が増えても
+独立な人格自由度が増えたとは解釈せず、各次元の入力と重みを追跡できる点を研究上の利点とします。
 
 ### LLM 市長 (council.js) と供給デーモン (supply_bot.js)
 

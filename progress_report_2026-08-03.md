@@ -53,7 +53,20 @@
 - 複数seedの平均・標準偏差を出すrunnerと、`/threats`を読むshadow専用daemonを追加した。
   現段階では市民移動・戦闘命令を出さない。
 
-### 2.6 一時欠落による誤死亡の修正
+### 2.6 Phase 3.6 詳細認知ペルソナ
+
+- P1の7数値特性を正本のまま維持し、価値、動機、欲求優先度、規範、対処、感情力学、
+  意思決定傾向を決定論的に導出する`voyager-cognition-v1`を実装した。
+- 本人・相手の困窮、有向関係、対人記憶、距離、資源から5つの状況依存goalを計算し、
+  appraisal、予期感情、help/refuse scoreまで全入力・重み・寄与をtrace化した。
+- 係数を`experimental-unvalidated`なJSON configへ分離し、詳細モデルv2と既存v1を
+  同一場面・同一乱数で比較するrunnerを追加した。
+- 初回v2が正信号の項目数だけで援助へ偏ったことを検出し、各値を中立点0.5からの正負の証拠へ
+  変換した。運用既定は較正済みでないv2へ切り替えず、v1を維持した。
+- 全生存市民のprofileと次元分布を出力するreportを追加し、定義、主張範囲、限界、再現手順を
+  `COGNITIVE_MODEL.md`へまとめた。
+
+### 2.7 一時欠落による誤死亡の修正
 
 - `persona_daemon.js`は、市民が`/status`から3 poll連続で欠落すると死亡扱いしていた。
   実環境では生存市民24がこの条件を満たし、`personas.json`で誤って`deceased=true`になっていた。
@@ -74,6 +87,9 @@
 | ライブ復活確認 | PASS。市民24を`restored`し、`deceased=false`を永続化 |
 | ライブ名同期 | PASS。市民8・24で`identity_updated`を一度だけ記録 |
 | Appraisal単体テスト | 6/6 PASS |
+| 詳細認知profile | PASS（決定性、範囲、個人差、導出trace） |
+| Appraisal v2 | PASS（援助、拒否、資源なし、seed再現、寄与trace） |
+| Profile report / v1-v2比較 | PASS（分布集計、trace切替、同一seed再現、決定論比較） |
 | 行動キュー | PASS（partial line保留、byte offset再開） |
 | observer行動適用 | PASS（同一イベントを一度だけ適用） |
 | 援助daemon | PASS（成功・shadow・失敗・資源不足） |
@@ -89,6 +105,10 @@
 | Phase 4単体・daemonテスト | PASS（経路、TTL、seed再現、重複抑止、標的市民を警報源化） |
 | 情報伝播100 seed | 平均到達率 uniform 0.4529、persona 0.4423、relation/temporal 0.5643 |
 | `/threats` shadow接続 | PASS。現在は`no-threat`、ゲーム操作なし |
+| 35市民の認知分布 | 主要9次元すべてに分散、SD 0.1147〜0.2058 |
+| v1/v2確率比較 | 11,100試行/モデル。援助率0.7003→0.6032、不一致率0.1001 |
+| v1/v2決定論比較 | 222場面。援助率0.6892→0.6171、不一致16場面（0.0721） |
+| v2ライブshadow | starving対象なし。hungry対象で実profile・全寄与生成、ゲーム操作なし |
 
 ## 4. 現在のライブ状態
 
@@ -99,6 +119,7 @@
   `deceased=false`、`deceasedAt=null`、name=`June D. Harris`。
 - Bridge最終版を配備し、全建物範囲255チャンクと適応tickrateを復元した。
 - social_helpは限定`--once`試験のみ。連続自動実行は係数較正前のため開始していない。
+- 詳細appraisal v2も非実行shadowのみ。`social_help_daemon`の運用既定はv1で、v2は環境変数によるopt-in。
 - social dynamicsはversion 2 / phase 3.5へライブ移行済み。observerは新コードで稼働中。
 - Phase 3.5前のライブ状態は`runtime_backups/pre_phase35_b9b825c_20260801T1430Z/`へ退避し、
   SHA-256を確認した。information daemonは一回shadowのみで常駐していない。
@@ -113,19 +134,23 @@
   以前からの既知問題は未解消。
 - 既存未追跡の`compare_metrics.js`、`ops.js`、`zone_audit.js`は変更せず保全中。
 - appraisal係数、拒否ペナルティ、softmax temperature、明示的な価値遺伝は未較正。
+- 詳細認知の各次元はP1の7特性からの射影であり、独立な心理因子ではない。卒論では因子相関と
+  多重共線性を明示し、「詳細な名称=新しい独立自由度」と主張しない。
 - 履歴操作で拒否経験が援助率を0.7018→0.3007へ下げ、現係数は強すぎる可能性がある。
   本実験値として固定せず、複数seedと教員相談後に事前登録する。
 - 移動timeoutは適応tickrateで初回失敗し、ゲーム内1200秒へ延長して成功した。実距離別の上限は要計測。
 
 ## 6. 次の一週間
 
-1. 援助・拒否係数、感情半減期、softmax temperatureの候補範囲を比較し事前登録案を作る。
-2. 自然な困窮時の限定ライブ試行を増やし、返礼、移動距離、成功率、回復時間を測定する。
-3. 自然発生脅威をshadow観測し、中心性・孤立者と情報未到達の関係を分析する。
-4. 教員相談後、現比較条件と係数を本実験用に固定する。
+1. 詳細v2係数、個人別感情半減期、softmax temperatureの候補範囲を複数seedで感度分析する。
+2. 調整前に仮説・主要指標・除外条件を記録し、自然な困窮時にv1/v2を同じsnapshotでshadow比較する。
+3. 自然な困窮時の限定ライブ試行を増やし、返礼、移動距離、成功率、回復時間を測定する。
+4. 自然発生脅威をshadow観測し、中心性・孤立者と情報未到達の関係を分析する。
+5. 教員相談後、現比較条件と係数を本実験用に固定する。
 
 ## 7. 主要コミット
 
 - `4c9a7fc` — 誤死亡自己修復、名前同期、週次報告開始（両remoteへpush済み）
 - `68fdcf2` — Phase 3 appraisal・有向関係・身体化された援助閉ループ（両remoteへpush済み）
 - `e253513` — Phase 3.5時間的関係・比較runner・Phase 4局所情報伝播（両remoteへpush済み）
+- `05a5215` — 詳細認知profile・appraisal v2・v1/v2比較runner（両remoteへpush済み）

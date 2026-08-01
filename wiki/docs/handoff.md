@@ -2,9 +2,10 @@
 
 このページは、後任者や研究室メンバーが実験を再現・拡張するために必要な最小限の操作手順をまとめたものです。詳細な設計判断や過去のトラブル履歴は、リポジトリ内の以下の文書を参照してください。
 
-- `HANDOFF_2026-07-10.md` — 最新の技術状態と既知の問題
+- `HANDOFF_2026-08-01.md` — 最新の技術状態と既知の問題
 - `IMPLEMENTATION_NOTES.md` — bridge/council/supply_bot の実装詳細
 - `DESIGN_DECISIONS_normal_world.md` — 通常ワールド移行の設計判断
+- `COGNITIVE_MODEL.md` — 詳細認知ペルソナの定義、比較結果、主張範囲
 - `progress_report_*.md` — 節目ごとの進捗レポート
 
 ## リポジトリ構成
