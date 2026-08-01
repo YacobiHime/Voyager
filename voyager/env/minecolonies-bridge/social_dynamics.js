@@ -7,6 +7,9 @@ const path = require("path");
 
 const DYNAMICS_FILE = process.env.SOCIAL_DYNAMICS_FILE ||
   path.join(__dirname, "social_dynamics.json");
+const AFFECT_HALF_LIFE_TICKS = parseInt(
+  process.env.SOCIAL_AFFECT_HALF_LIFE_TICKS || "24000", 10
+);
 
 function clamp01(value) {
   return Math.max(0, Math.min(1, value));
@@ -101,10 +104,96 @@ function ensurePerspective(relation, from, toward) {
       trust: typeof relation.trust === "number" ? relation.trust : 0.5,
       affinity: typeof relation.affinity === "number" ? relation.affinity : 0.5,
       obligation: 0,
+      affect: { gratitude: 0, resentment: 0, lastGameTime: null },
+      memory: {
+        helpReceived: 0, helpGiven: 0,
+        refusalsReceived: 0, requestsRefused: 0,
+        repayments: 0, lastOutcome: null,
+      },
       lastEventGameTime: null,
     };
   }
-  return relation.perspectives[key];
+  const perspective = relation.perspectives[key];
+  perspective.toward = toward;
+  perspective.affect = perspective.affect || {
+    gratitude: 0, resentment: 0, lastGameTime: perspective.lastEventGameTime || null,
+  };
+  perspective.affect.gratitude = round3(perspective.affect.gratitude || 0);
+  perspective.affect.resentment = round3(perspective.affect.resentment || 0);
+  perspective.memory = perspective.memory || {};
+  for (const field of ["helpReceived", "helpGiven", "refusalsReceived", "requestsRefused", "repayments"]) {
+    if (!Number.isInteger(perspective.memory[field]) || perspective.memory[field] < 0) {
+      perspective.memory[field] = 0;
+    }
+  }
+  if (!Object.hasOwn(perspective.memory, "lastOutcome")) perspective.memory.lastOutcome = null;
+  return perspective;
+}
+
+// Affect is stored at the last social event and evaluated lazily from absolute
+// game time. This makes decay independent of observer polling frequency.
+function effectivePerspective(perspective, gameTime, halfLifeTicks) {
+  if (!perspective) return null;
+  const affect = perspective.affect || { gratitude: 0, resentment: 0, lastGameTime: null };
+  const halfLife = Number.isFinite(halfLifeTicks) && halfLifeTicks > 0
+    ? halfLifeTicks : AFFECT_HALF_LIFE_TICKS;
+  const elapsed = Number.isFinite(gameTime) && Number.isFinite(affect.lastGameTime)
+    ? Math.max(0, gameTime - affect.lastGameTime) : 0;
+  const factor = Math.pow(0.5, elapsed / halfLife);
+  return {
+    ...perspective,
+    affect: {
+      gratitude: round3((affect.gratitude || 0) * factor),
+      resentment: round3((affect.resentment || 0) * factor),
+      lastGameTime: affect.lastGameTime == null ? null : affect.lastGameTime,
+      evaluatedAtGameTime: Number.isFinite(gameTime) ? gameTime : null,
+    },
+  };
+}
+
+function advancePerspectiveAffect(perspective, gameTime) {
+  const effective = effectivePerspective(perspective, gameTime);
+  perspective.affect = {
+    gratitude: effective.affect.gratitude,
+    resentment: effective.affect.resentment,
+    lastGameTime: Number.isFinite(gameTime) ? gameTime : perspective.affect.lastGameTime,
+  };
+  return perspective;
+}
+
+// Phase 3 action outcomes may already have changed trust/affinity before the
+// Phase 3.5 memory schema existed. Rebuild memory/affect from the authoritative
+// append-only action log without applying numeric relationship deltas twice.
+function backfillActionMemory(state, event, gameTime) {
+  if (event.type === "help_succeeded") {
+    const recipientView = perspectiveFor(state, event.recipientId, event.helperId);
+    const helperView = perspectiveFor(state, event.helperId, event.recipientId);
+    if (!recipientView || !helperView) return false;
+    advancePerspectiveAffect(recipientView, gameTime);
+    advancePerspectiveAffect(helperView, gameTime);
+    recipientView.affect.gratitude = round3(recipientView.affect.gratitude + 0.18);
+    recipientView.affect.resentment = round3(recipientView.affect.resentment - 0.05);
+    recipientView.memory.helpReceived++;
+    recipientView.memory.lastOutcome = "received_help";
+    helperView.memory.helpGiven++;
+    helperView.memory.lastOutcome = "gave_help";
+    return true;
+  }
+  if (event.type === "help_refused") {
+    const recipientView = perspectiveFor(state, event.recipientId, event.helperId);
+    const helperView = perspectiveFor(state, event.helperId, event.recipientId);
+    if (!recipientView || !helperView) return false;
+    advancePerspectiveAffect(recipientView, gameTime);
+    advancePerspectiveAffect(helperView, gameTime);
+    recipientView.affect.resentment = round3(recipientView.affect.resentment + 0.16);
+    recipientView.affect.gratitude = round3(recipientView.affect.gratitude - 0.06);
+    recipientView.memory.refusalsReceived++;
+    recipientView.memory.lastOutcome = "request_refused";
+    helperView.memory.requestsRefused++;
+    helperView.memory.lastOutcome = "refused_request";
+    return true;
+  }
+  return false;
 }
 
 function updateRelationAggregates(relation) {
@@ -154,6 +243,8 @@ function reconcileState(existing, graph, personas) {
     if (!activeEdges.has(key)) relation.structurallyActive = false;
   }
   state._meta.colonyId = graph._meta.colonyId;
+  state._meta.version = Math.max(Number(state._meta.version) || 1, 2);
+  state._meta.phase = 3.5;
   return state;
 }
 
@@ -233,10 +324,21 @@ function applyEvent(state, event, personas, gameTime) {
     const helperView = perspectiveFor(state, event.helperId, event.recipientId);
     const relation = relationFor(state, event.helperId, event.recipientId);
     if (recipientView && helperView && relation) {
+      advancePerspectiveAffect(recipientView, gameTime);
+      advancePerspectiveAffect(helperView, gameTime);
+      const repaid = Math.min(helperView.obligation, 0.1);
       recipientView.trust = round3(recipientView.trust + 0.08);
       recipientView.affinity = round3(recipientView.affinity + 0.05);
       recipientView.obligation = round3(recipientView.obligation + 0.1);
+      recipientView.affect.gratitude = round3(recipientView.affect.gratitude + 0.18);
+      recipientView.affect.resentment = round3(recipientView.affect.resentment - 0.05);
+      recipientView.memory.helpReceived++;
+      recipientView.memory.lastOutcome = "received_help";
       helperView.affinity = round3(helperView.affinity + 0.02);
+      helperView.obligation = round3(helperView.obligation - repaid);
+      helperView.memory.helpGiven++;
+      helperView.memory.lastOutcome = repaid > 0 ? "repaid_help" : "gave_help";
+      if (repaid > 0) helperView.memory.repayments++;
       recipientView.lastEventGameTime = gameTime == null ? null : gameTime;
       helperView.lastEventGameTime = gameTime == null ? null : gameTime;
       relation.lastEventGameTime = gameTime == null ? null : gameTime;
@@ -244,28 +346,45 @@ function applyEvent(state, event, personas, gameTime) {
       effect.trustDelta = 0.08;
       effect.affinityDelta = 0.05;
       effect.obligationDelta = 0.1;
+      effect.gratitudeDelta = 0.18;
+      effect.repaidObligation = Math.round(repaid * 1000) / 1000;
     }
   } else if (event.type === "help_refused") {
     const recipientView = perspectiveFor(state, event.recipientId, event.helperId);
+    const helperView = perspectiveFor(state, event.helperId, event.recipientId);
     const relation = relationFor(state, event.helperId, event.recipientId);
-    if (recipientView && relation) {
+    if (recipientView && helperView && relation) {
+      advancePerspectiveAffect(recipientView, gameTime);
+      advancePerspectiveAffect(helperView, gameTime);
       recipientView.trust = round3(recipientView.trust - 0.06);
       recipientView.affinity = round3(recipientView.affinity - 0.03);
+      recipientView.affect.resentment = round3(recipientView.affect.resentment + 0.16);
+      recipientView.affect.gratitude = round3(recipientView.affect.gratitude - 0.06);
+      recipientView.memory.refusalsReceived++;
+      recipientView.memory.lastOutcome = "request_refused";
+      helperView.memory.requestsRefused++;
+      helperView.memory.lastOutcome = "refused_request";
       recipientView.lastEventGameTime = gameTime == null ? null : gameTime;
+      helperView.lastEventGameTime = gameTime == null ? null : gameTime;
       relation.lastEventGameTime = gameTime == null ? null : gameTime;
       updateRelationAggregates(relation);
       effect.trustDelta = -0.06;
       effect.affinityDelta = -0.03;
+      effect.resentmentDelta = 0.16;
     }
   } else if (event.type === "help_repaid") {
     const repayerView = perspectiveFor(state, event.repayerId, event.recipientId);
     const relation = relationFor(state, event.repayerId, event.recipientId);
     if (repayerView && relation) {
-      repayerView.obligation = round3(repayerView.obligation - (event.amount || 0.1));
+      advancePerspectiveAffect(repayerView, gameTime);
+      const repaid = Math.min(repayerView.obligation, event.amount || 0.1);
+      repayerView.obligation = round3(repayerView.obligation - repaid);
+      repayerView.memory.repayments++;
+      repayerView.memory.lastOutcome = "repaid_help";
       repayerView.lastEventGameTime = gameTime == null ? null : gameTime;
       relation.lastEventGameTime = gameTime == null ? null : gameTime;
       updateRelationAggregates(relation);
-      effect.obligationDelta = -(event.amount || 0.1);
+      effect.obligationDelta = -repaid;
     }
   }
   return effect;
@@ -292,8 +411,12 @@ module.exports = {
   reconcileState,
   jobPreferenceEffect,
   nutritionSeverity,
+  AFFECT_HALF_LIFE_TICKS,
   relationFor,
   perspectiveFor,
+  effectivePerspective,
+  advancePerspectiveAffect,
+  backfillActionMemory,
   updateRelationAggregates,
   applyEvent,
   loadState,

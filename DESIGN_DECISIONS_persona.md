@@ -156,6 +156,30 @@ George→Archieはtrust 0.50のままaffinityのみ0.52となった。
 援助量を1個から需要量へ変えるか、拒否ペナルティの大きさ、確率選択のtemperature、
 感情状態を一回限りの評価から時間減衰する持続状態へ昇格するか。
 
+### 2026-08-01 Phase 3.5/4 実装判断 — 時間的関係と局所情報
+
+Phase 4へ直行する前に、Phase 3.5として相手ごとの`gratitude`、`resentment`、援助・拒否回数を
+有向perspectiveへ追加した。一時的感情を市民全体へ置かなかった理由は、「Aへの感謝」と
+「Bへの反感」を同時に表現し、どちらの経験が次の相手選択・判断へ効いたか追跡するためである。
+
+感情はobserverのpollごとに破壊的更新せず、最後の社会イベント時の強度とgameTimeを保存し、
+参照時に24,000 tick半減期で評価する。これによりpoll間隔が異なっても同じイベント・gameTimeから
+同じ値を得る。obligationは自然減衰させず、恩義を持つ市民が元の援助者を助けた時に最大0.10を
+自動返済する。過去のPhase 3行動は別byte offsetでログから一度だけ記憶へ復元し、trust等は再適用しない。
+
+比較runnerは`uniform`、`persona`、`persona_relation`、`temporal`の同一ペア・同一乱数比較とした。
+現在データの11,100試行/条件では援助率0.5123、0.6051、0.7018、0.7018。履歴操作では
+履歴なし0.7018、援助経験0.8322、拒否経験0.3007となった。拒否効果は大きすぎる可能性があり、
+本実験前の較正対象である。結果の方向だけを受け入れ条件とし、この係数で現実妥当性を主張しない。
+
+Phase 4は構造化脅威警報を家族・同僚・近隣辺だけへ伝える純粋シミュレータとして実装した。
+発信者、根拠、gameTime、TTL、最大hopを保持し、受信者のtrust、familiarity、sociability、
+community価値、gratitude、resentmentで受容・再伝達を決める。100 seed平均到達率は
+uniform 0.4529、persona 0.4423、persona_relation/temporal 0.5643。全attemptとpathを保存する。
+`/threats`接続daemonはshadow専用とし、Phase 6までは移動・戦闘命令を出さない。
+
+詳細な再現コマンドと解釈上の注意は`SOCIAL_EXPERIMENTS.md`を正本とする。
+
 ## 確定した設計決定
 
 | # | 論点 | 決定 |

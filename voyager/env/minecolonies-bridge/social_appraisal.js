@@ -67,6 +67,10 @@ function appraiseHelpRequest(input) {
   const trust = typeof view.trust === "number" ? view.trust : 0.5;
   const affinity = typeof view.affinity === "number" ? view.affinity : 0.5;
   const obligation = typeof view.obligation === "number" ? view.obligation : 0;
+  const gratitude = view.affect && typeof view.affect.gratitude === "number"
+    ? view.affect.gratitude : 0;
+  const resentment = view.affect && typeof view.affect.resentment === "number"
+    ? view.affect.resentment : 0;
   const familiarity = typeof input.familiarity === "number" ? input.familiarity : 0;
   const resourceAvailable = input.resourceAvailable !== false;
   const distance = Math.max(0, input.distance || 0);
@@ -85,8 +89,11 @@ function appraiseHelpRequest(input) {
   };
   const emotions = {
     concern: round3(clamp01(appraisal.relevance * appraisal.goalCongruence)),
-    obligation: round3(clamp01(appraisal.relevance * appraisal.normCompatibility + 0.5 * obligation)),
-    reluctance: round3(clamp01(appraisal.selfCost * (1 - 0.35 * appraisal.goalCongruence))),
+    obligation: round3(clamp01(appraisal.relevance * appraisal.normCompatibility +
+      0.35 * obligation + 0.2 * gratitude)),
+    reluctance: round3(clamp01(
+      appraisal.selfCost * (1 - 0.35 * appraisal.goalCongruence) + 0.35 * resentment
+    )),
     distress: round3(clamp01(needSeverity * (0.5 + 0.5 * (helper.stress || 0)))),
   };
   return {
@@ -101,6 +108,8 @@ function appraiseHelpRequest(input) {
       trust,
       affinity,
       obligation,
+      gratitude,
+      resentment,
       familiarity,
       resourceAvailable,
       distance: round3(distance),
@@ -120,6 +129,8 @@ function scoreHelpActions(appraisalResult) {
   const helpParts = [
     contribution("concern", 1.25 * e.concern),
     contribution("obligation", 0.9 * e.obligation),
+    contribution("gratitude", 0.4 * c.gratitude),
+    contribution("resentment", -0.6 * c.resentment),
     contribution("trust", 0.65 * (c.trust - 0.5)),
     contribution("affinity", 0.45 * (c.affinity - 0.5)),
     contribution("family", c.family ? 0.35 * v.family : 0),
@@ -131,6 +142,7 @@ function scoreHelpActions(appraisalResult) {
   const refuseParts = [
     contribution("selfCost", 0.9 * a.selfCost),
     contribution("reluctance", 0.8 * e.reluctance),
+    contribution("resentment", 0.5 * c.resentment),
     contribution("autonomy", 0.25 * (v.autonomy - 0.5)),
     contribution("lowConcern", 0.55 * (0.5 - e.concern)),
     contribution("noResource", c.resourceAvailable ? 0 : 1.5),

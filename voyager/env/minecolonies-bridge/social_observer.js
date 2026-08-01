@@ -69,6 +69,24 @@ async function pollOnce(previous, opts) {
     D.applyEvent(dynamicState, event, personas, colony.gameTime);
   }
   const actionOffset = dynamicState._meta.actionEventOffset || 0;
+  const memoryOffset = dynamicState._meta.memoryBackfillOffset || 0;
+  if (memoryOffset < actionOffset) {
+    const historical = Q.readActions(memoryOffset, opts && opts.actionFile, actionOffset);
+    let restored = 0;
+    for (const event of historical.events) {
+      if (D.backfillActionMemory(
+        dynamicState, event, event.gameTime == null ? colony.gameTime : event.gameTime
+      )) restored++;
+    }
+    dynamicState._meta.memoryBackfillOffset = historical.nextOffset;
+    appendEvent({
+      type: "social_memory_backfilled",
+      fromOffset: memoryOffset,
+      toOffset: historical.nextOffset,
+      actionEvents: historical.events.length,
+      memoryEvents: restored,
+    }, opts && opts.eventFile, opts && opts.now, colony.gameTime);
+  }
   const pending = Q.readActions(actionOffset, opts && opts.actionFile);
   for (const event of pending.events) {
     appendEvent(
@@ -78,6 +96,7 @@ async function pollOnce(previous, opts) {
     D.applyEvent(dynamicState, event, personas, event.gameTime == null ? colony.gameTime : event.gameTime);
   }
   dynamicState._meta.actionEventOffset = pending.nextOffset;
+  dynamicState._meta.memoryBackfillOffset = pending.nextOffset;
   D.saveState(dynamicState, opts && opts.dynamicsFile);
   return { ...result, dynamicState };
 }

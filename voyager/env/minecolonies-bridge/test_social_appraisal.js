@@ -75,4 +75,21 @@ test("seeded choice is repeatable", () => {
   assert.deepStrictEqual(actions.actions, same.actions);
 });
 
+test("remembered gratitude and resentment shift later action scores", () => {
+  const grateful = A.decideHelp(input({
+    helperPerspective: {
+      trust: 0.5, affinity: 0.5, obligation: 0,
+      affect: { gratitude: 0.8, resentment: 0 },
+    },
+  }), { mode: "max" });
+  const resentful = A.decideHelp(input({
+    helperPerspective: {
+      trust: 0.5, affinity: 0.5, obligation: 0,
+      affect: { gratitude: 0, resentment: 0.8 },
+    },
+  }), { mode: "max" });
+  assert.ok(grateful.actions.help.score > resentful.actions.help.score);
+  assert.ok(grateful.actions.refuse.score < resentful.actions.refuse.score);
+});
+
 console.log(`\nALL PASS (${passed} tests)`);

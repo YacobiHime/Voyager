@@ -13,11 +13,13 @@ function appendAction(event, file, now) {
   return record;
 }
 
-function readActions(offset, file) {
+function readActions(offset, file, endOffset) {
   const target = file || ACTION_FILE;
   const start = Number.isInteger(offset) && offset >= 0 ? offset : 0;
   if (!fs.existsSync(target)) return { events: [], nextOffset: start };
-  const size = fs.statSync(target).size;
+  const fileSize = fs.statSync(target).size;
+  const size = Number.isInteger(endOffset) && endOffset >= 0
+    ? Math.min(fileSize, endOffset) : fileSize;
   if (start > size) throw new Error(`social action offset ${start} exceeds file size ${size}`);
   if (start === size) return { events: [], nextOffset: size };
   const fd = fs.openSync(target, "r");

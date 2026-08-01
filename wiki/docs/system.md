@@ -129,10 +129,14 @@ MineColonies 本体のバグや癖に対して、bridge 側で以下のような
 - `social_help_daemon.js`: 困窮を検出し、関係者から援助者を選び、appraisalの判断根拠を保存する。実行時は
   援助者を相手まで歩かせ、所持している食料だけを移転する
 - `social_action_queue.js`: 行動結果をappend-onlyで受け渡し、observerがoffsetにより一度だけ関係へ反映する
+- `social_experiment.js`: 同じ市民ペアを全員同一／ペルソナ／関係／時間的記憶の4条件で比較する
+- `social_information.js`: 脅威警報を社会グラフ上で局所伝播し、受容・再伝達・経路を記録する
+- `social_information_daemon.js`: `/threats`を読むshadow層。現段階では移動・戦闘命令を出さない
 
 関係は対称な辺だけでなく、AからBへのtrust/affinity/obligationとBからAへの値を別々に持ちます。
 これにより、援助を受けた側だけが強い信頼や返礼義務を持つ状態を表現できます。現在、援助daemonは
-限定試験のみで、連続自動実行は係数較正前のため停止しています。
+限定試験のみで、連続自動実行は係数較正前のため停止しています。Phase 3.5以降は相手別のgratitude、
+resentment、援助・拒否履歴も保持し、感情はgameTimeに基づいて減衰、恩義は返礼行動で消費します。
 
 ### LLM 市長 (council.js) と供給デーモン (supply_bot.js)
 

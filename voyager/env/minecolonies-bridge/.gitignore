@@ -40,3 +40,8 @@ social_action_events.jsonl
 social_help_events.jsonl
 social_help_runtime.json
 social_help.pid
+social_experiment_results/
+social_information_results/
+social_information_events.jsonl
+social_information_runtime.json
+social_information.pid

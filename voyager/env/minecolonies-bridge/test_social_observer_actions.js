@@ -41,6 +41,7 @@ const colony = {
   });
   assert.strictEqual(D.perspectiveFor(result.dynamicState, 2, 1).trust, 0.58);
   assert.strictEqual(result.dynamicState._meta.actionEventOffset, fs.statSync(actionFile).size);
+  assert.strictEqual(result.dynamicState._meta.memoryBackfillOffset, fs.statSync(actionFile).size);
   assert.ok(fs.readFileSync(eventFile, "utf8").includes("social_action_applied"));
 
   const again = await O.pollOnce(graph, {
@@ -54,6 +55,31 @@ const colony = {
     personas: { personas: {} },
   });
   assert.strictEqual(D.perspectiveFor(again.dynamicState, 2, 1).trust, 0.58);
+  assert.strictEqual(D.perspectiveFor(again.dynamicState, 2, 1).memory.helpReceived, 1);
+
+  const legacyActionFile = path.join(dir, "legacy-actions.jsonl");
+  Q.appendAction({
+    type: "help_succeeded", helperId: 1, recipientId: 2, gameTime: 480,
+  }, legacyActionFile, "legacy");
+  const legacy = D.reconcileState(null, graph, null);
+  D.perspectiveFor(legacy, 2, 1).trust = 0.58;
+  D.perspectiveFor(legacy, 2, 1).obligation = 0.1;
+  legacy._meta.actionEventOffset = fs.statSync(legacyActionFile).size;
+  const migrated = await O.pollOnce(graph, {
+    fetchColony: async () => colony,
+    dynamicState: legacy,
+    actionFile: legacyActionFile,
+    eventFile: path.join(dir, "legacy-observer.jsonl"),
+    stateFile: path.join(dir, "legacy-graph.json"),
+    dynamicsFile: path.join(dir, "legacy-dynamics.json"),
+    now: "t4",
+    personas: { personas: {} },
+  });
+  assert.strictEqual(D.perspectiveFor(migrated.dynamicState, 2, 1).trust, 0.58,
+    "memory backfill must not apply trust twice");
+  assert.strictEqual(D.perspectiveFor(migrated.dynamicState, 2, 1).memory.helpReceived, 1);
+  assert.strictEqual(migrated.dynamicState._meta.memoryBackfillOffset,
+    migrated.dynamicState._meta.actionEventOffset);
   fs.rmSync(dir, { recursive: true, force: true });
   console.log("ALL PASS (observer applies social actions exactly once)");
 })().catch((error) => { console.error(error); process.exit(1); });

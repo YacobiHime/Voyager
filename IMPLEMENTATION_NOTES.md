@@ -56,6 +56,10 @@ spawnAgent() → bot.spawn → turn(name) ループ(4.5秒ごとに自分自身�
 | `social_appraisal.js` | P1特性・価値・関係・状態から援助判断と説明可能な寄与を計算 |
 | `social_help_daemon.js` | 困窮検出→相手選択→実移動→既存食料移転を行うPhase 3 daemon |
 | `social_action_queue.js` | 行動daemonから単一writerのsocial_observerへ結果を渡すappend-onlyキュー |
+| `social_experiment.js` | 同一入力・同一乱数で4条件の援助判断を比較する反実仮想runner |
+| `social_information.js` | trust・ペルソナ・TTLに基づくPhase 4局所情報伝播の純粋モデル |
+| `social_information_runner.js` | 現在の社会グラフで情報到達率を複数seed比較 |
+| `social_information_daemon.js` | `/threats`を構造化警報へ接続するshadow専用daemon |
 | `building_registry.json` | block_id → Colonialパック blueprint パスのマッピング表 |
 
 ### Domum Ornamentum フレーム付きブロックの取り扱い(重要)

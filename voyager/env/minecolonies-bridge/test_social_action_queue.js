@@ -19,6 +19,10 @@ assert.strictEqual(second.events.length, 1);
 assert.strictEqual(second.events[0].helperId, 3);
 assert.strictEqual(second.nextOffset, fs.statSync(file).size);
 
+const bounded = Q.readActions(0, file, first.nextOffset);
+assert.strictEqual(bounded.events.length, 1);
+assert.strictEqual(bounded.nextOffset, first.nextOffset);
+
 const none = Q.readActions(second.nextOffset, file);
 assert.deepStrictEqual(none.events, []);
 assert.strictEqual(none.nextOffset, second.nextOffset);

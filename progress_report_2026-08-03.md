@@ -36,7 +36,24 @@
 - `social_help_daemon.js`が困窮者、関係者、所持食料を選び、実移動後に既存食料を1個移転する。
 - 資源不足は`help_unable`、移動・API失敗は`help_failed`として、意図的拒否と区別する。
 
-### 2.4 一時欠落による誤死亡の修正
+### 2.4 Phase 3.5 時間的関係・比較実験
+
+- 有向perspectiveへ相手別のgratitude、resentment、援助・拒否回数、最終結果を追加した。
+- 感情はgameTime 24,000 tick半減期で遅延評価し、observerのpoll頻度に依存させない。
+- 恩義を持つ相手を助けた場合、obligationを最大0.10自動返済する返礼規則を追加した。
+- Phase 3で適用済みの行動ログを別byte offsetで一度だけ記憶へ復元し、trustの二重適用を防いだ。
+- 同じ222有向ペアと乱数を使うuniform／persona／persona_relation／temporal比較runnerを追加した。
+- 援助履歴だけを操作するmanipulation checkと再現手順を`SOCIAL_EXPERIMENTS.md`へまとめた。
+
+### 2.5 Phase 4 局所情報伝播
+
+- 発信者、根拠イベント、gameTime、TTL、最大hopを持つ構造化脅威警報を実装した。
+- 家族・同僚・近隣辺のみを通り、受信者から発信者へのtrust、familiarity、ペルソナ、感情で
+  受容・再伝達を決め、全attemptと到達pathを保存する。
+- 複数seedの平均・標準偏差を出すrunnerと、`/threats`を読むshadow専用daemonを追加した。
+  現段階では市民移動・戦闘命令を出さない。
+
+### 2.6 一時欠落による誤死亡の修正
 
 - `persona_daemon.js`は、市民が`/status`から3 poll連続で欠落すると死亡扱いしていた。
   実環境では生存市民24がこの条件を満たし、`personas.json`で誤って`deceased=true`になっていた。
@@ -52,12 +69,11 @@
 |---|---|
 | P1単体テスト | 17/17 PASS（再出現後の復活・ライブ名同期テストを追加） |
 | Phase 1関係グラフ | 8/8 PASS |
-| Phase 2動的状態 | 7/7 PASS |
+| Phase 2〜3.5動的状態 | 10/10 PASS |
 | `git diff --check` | PASS |
 | ライブ復活確認 | PASS。市民24を`restored`し、`deceased=false`を永続化 |
 | ライブ名同期 | PASS。市民8・24で`identity_updated`を一度だけ記録 |
-| Appraisal単体テスト | 5/5 PASS |
-| Phase 3動的状態 | 8/8 PASS |
+| Appraisal単体テスト | 6/6 PASS |
 | 行動キュー | PASS（partial line保留、byte offset再開） |
 | observer行動適用 | PASS（同一イベントを一度だけ適用） |
 | 援助daemon | PASS（成功・shadow・失敗・資源不足） |
@@ -67,6 +83,12 @@
 | 資源保存 | 1個往復で送信96→95→96、受信0→1→0 |
 | ライブ援助 | 市民17→18、実移動後steak dinner 1個移転成功 |
 | 非対称関係更新 | 受益者側trust 0.50→0.58、offset 275/275 |
+| 記憶移行 | 222/222視点、memory offset 275/275。旧援助1件をtrust二重適用なしで復元 |
+| 援助4条件比較 | 11,100試行/条件。help率 0.5123→0.6051→0.7018→0.7018 |
+| 履歴操作 | 援助経験0.8322、履歴なし0.7018、拒否経験0.3007 |
+| Phase 4単体・daemonテスト | PASS（経路、TTL、seed再現、重複抑止、標的市民を警報源化） |
+| 情報伝播100 seed | 平均到達率 uniform 0.4529、persona 0.4423、relation/temporal 0.5643 |
+| `/threats` shadow接続 | PASS。現在は`no-threat`、ゲーム操作なし |
 
 ## 4. 現在のライブ状態
 
@@ -77,6 +99,11 @@
   `deceased=false`、`deceasedAt=null`、name=`June D. Harris`。
 - Bridge最終版を配備し、全建物範囲255チャンクと適応tickrateを復元した。
 - social_helpは限定`--once`試験のみ。連続自動実行は係数較正前のため開始していない。
+- social dynamicsはversion 2 / phase 3.5へライブ移行済み。observerは新コードで稼働中。
+- Phase 3.5前のライブ状態は`runtime_backups/pre_phase35_b9b825c_20260801T1430Z/`へ退避し、
+  SHA-256を確認した。information daemonは一回shadowのみで常駐していない。
+- 返礼試験はArchie(18)→George(17)がhelpを選択したが、実行直前にGeorgeが食事して回復したため
+  実行側が安全に`no-need`とし、食料移転・関係更新は発生しなかった。
 
 ## 5. 未解決事項
 
@@ -86,14 +113,16 @@
   以前からの既知問題は未解消。
 - 既存未追跡の`compare_metrics.js`、`ops.js`、`zone_audit.js`は変更せず保全中。
 - appraisal係数、拒否ペナルティ、softmax temperature、明示的な価値遺伝は未較正。
+- 履歴操作で拒否経験が援助率を0.7018→0.3007へ下げ、現係数は強すぎる可能性がある。
+  本実験値として固定せず、複数seedと教員相談後に事前登録する。
 - 移動timeoutは適応tickrateで初回失敗し、ゲーム内1200秒へ延長して成功した。実距離別の上限は要計測。
 
 ## 6. 次の一週間
 
-1. appraisal係数を極端ペルソナと複数seedで操作チェックする。
-2. ペルソナなし／関係なし／関係あり／appraisalありの比較runnerと集計を作る。
-3. 限定ライブ試行を増やし、移動距離・成功率・回復時間を測定する。
-4. 教員相談後、価値の明示的遺伝と持続感情を実装対象にするか決める。
+1. 援助・拒否係数、感情半減期、softmax temperatureの候補範囲を比較し事前登録案を作る。
+2. 自然な困窮時の限定ライブ試行を増やし、返礼、移動距離、成功率、回復時間を測定する。
+3. 自然発生脅威をshadow観測し、中心性・孤立者と情報未到達の関係を分析する。
+4. 教員相談後、現比較条件と係数を本実験用に固定する。
 
 ## 7. 主要コミット
 

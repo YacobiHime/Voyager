@@ -84,6 +84,9 @@ test("help outcomes update asymmetric relationship perspectives", () => {
   assert.strictEqual(D.perspectiveFor(state, 2, 1).trust, 0.58);
   assert.strictEqual(D.perspectiveFor(state, 1, 2).trust, 0.5);
   assert.strictEqual(D.perspectiveFor(state, 2, 1).obligation, 0.1);
+  assert.strictEqual(D.perspectiveFor(state, 2, 1).affect.gratitude, 0.18);
+  assert.strictEqual(D.perspectiveFor(state, 2, 1).memory.helpReceived, 1);
+  assert.strictEqual(D.perspectiveFor(state, 1, 2).memory.helpGiven, 1);
   assert.strictEqual(state.relations["1:2"].trust, 0.54);
 
   D.applyEvent(state, {
@@ -91,6 +94,33 @@ test("help outcomes update asymmetric relationship perspectives", () => {
   }, null, 200);
   assert.strictEqual(D.perspectiveFor(state, 2, 1).trust, 0.52);
   assert.strictEqual(D.perspectiveFor(state, 1, 2).trust, 0.5);
+  assert.strictEqual(D.perspectiveFor(state, 2, 1).affect.resentment, 0.16);
+  assert.strictEqual(D.perspectiveFor(state, 2, 1).memory.refusalsReceived, 1);
+});
+
+test("directed affect decays by game time rather than poll count", () => {
+  const state = D.reconcileState(null, graph([
+    { citizenId: 1, name: "A" }, { citizenId: 2, name: "B" },
+  ], { "1:2": { a: 1, b: 2, sources: ["neighbor"] } }), null);
+  D.applyEvent(state, { type: "help_succeeded", helperId: 1, recipientId: 2 }, null, 100);
+  const stored = D.perspectiveFor(state, 2, 1);
+  const half = D.effectivePerspective(stored, 100 + D.AFFECT_HALF_LIFE_TICKS);
+  assert.strictEqual(half.affect.gratitude, 0.09);
+  assert.strictEqual(stored.affect.gratitude, 0.18, "lazy evaluation must not mutate stored state");
+});
+
+test("helping a former helper repays directed obligation", () => {
+  const state = D.reconcileState(null, graph([
+    { citizenId: 1, name: "A" }, { citizenId: 2, name: "B" },
+  ], { "1:2": { a: 1, b: 2, sources: ["neighbor"] } }), null);
+  D.applyEvent(state, { type: "help_succeeded", helperId: 1, recipientId: 2 }, null, 100);
+  const reciprocal = D.applyEvent(
+    state, { type: "help_succeeded", helperId: 2, recipientId: 1 }, null, 200
+  );
+  assert.strictEqual(D.perspectiveFor(state, 2, 1).obligation, 0);
+  assert.strictEqual(D.perspectiveFor(state, 2, 1).memory.repayments, 1);
+  assert.strictEqual(D.perspectiveFor(state, 1, 2).obligation, 0.1);
+  assert.strictEqual(reciprocal.repaidObligation, 0.1);
 });
 
 test("liked and disliked job changes update satisfaction and loyalty", () => {

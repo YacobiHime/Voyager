@@ -78,7 +78,7 @@ function relationKey(a, b) {
   return a < b ? `${a}:${b}` : `${b}:${a}`;
 }
 
-function rankHelpers(recipient, colony, graph, dynamics) {
+function rankHelpers(recipient, colony, graph, dynamics, gameTime) {
   const byId = new Map((colony.citizens || []).map((c) => [c.id, c]));
   const ranked = [];
   for (const edge of Object.values(graph.edges || {})) {
@@ -88,10 +88,15 @@ function rankHelpers(recipient, colony, graph, dynamics) {
     const helperState = dynamics.citizens[String(helperId)];
     if (!helper || helper.isChild || !helper.position || !helperState || !helperState.active) continue;
     if (helper.sick || liveNutritionBand(helper) === "starving") continue;
-    const requesterView = D.perspectiveFor(dynamics, recipient.id, helperId) || {};
+    const requesterView = D.effectivePerspective(
+      D.perspectiveFor(dynamics, recipient.id, helperId),
+      gameTime == null ? colony.gameTime : gameTime
+    ) || {};
+    const affect = requesterView.affect || {};
     const family = (edge.sources || []).some((x) => ["partner", "parent_child", "sibling"].includes(x));
-    const score = 0.45 * (requesterView.trust == null ? 0.5 : requesterView.trust) +
-      0.35 * (edge.familiarity || 0) + 0.2 * (family ? 1 : 0);
+    const score = 0.4 * (requesterView.trust == null ? 0.5 : requesterView.trust) +
+      0.3 * (edge.familiarity || 0) + 0.2 * (family ? 1 : 0) +
+      0.1 * ((affect.gratitude || 0) - (affect.resentment || 0));
     ranked.push({
       helper,
       edge,
@@ -183,7 +188,7 @@ async function runCycle(opts) {
 
   const recipient = recipients[0];
   const selectedHelper = o.helperId == null ? HELPER_ID : o.helperId;
-  const ranked = rankHelpers(recipient, colony, graph, dynamics)
+  const ranked = rankHelpers(recipient, colony, graph, dynamics, colony.gameTime)
     .filter((x) => selectedHelper == null || x.helper.id === selectedHelper);
   if (!ranked.length) return { status: "no-helper", recipientId: recipient.id };
   const candidate = ranked[0];
@@ -205,7 +210,9 @@ async function runCycle(opts) {
     helperPersona,
     helperState,
     recipientState,
-    helperPerspective: D.perspectiveFor(dynamics, helper.id, recipient.id),
+    helperPerspective: D.effectivePerspective(
+      D.perspectiveFor(dynamics, helper.id, recipient.id), colony.gameTime
+    ),
     sources: candidate.edge.sources,
     familiarity: candidate.edge.familiarity,
     distance: candidate.distance,
@@ -225,13 +232,15 @@ async function runCycle(opts) {
 
   const execute = Object.hasOwn(o, "execute") ? o.execute : EXECUTE;
   if (!execute) return { status: "shadow", ...base, selected: decision.selected };
+  if (!item) {
+    runtime.lastRequestGameTime[String(recipient.id)] = colony.gameTime;
+    saveRuntime(runtime, o.runtimeFile);
+    appendLog("help_unable", { ...base, reason: "no-transferable-resource" }, o.eventFile, o.now);
+    return { status: "unable", ...base };
+  }
   if (decision.selected === "refuse") {
     runtime.lastRequestGameTime[String(recipient.id)] = colony.gameTime;
     saveRuntime(runtime, o.runtimeFile);
-    if (!item) {
-      appendLog("help_unable", { ...base, reason: "no-transferable-resource" }, o.eventFile, o.now);
-      return { status: "unable", ...base };
-    }
     Q.appendAction({ type: "help_refused", ...base }, o.actionFile, o.now);
     appendLog("help_refused", base, o.eventFile, o.now);
     return { status: "refused", ...base };
@@ -272,7 +281,12 @@ async function main() {
   appendLog("start", { execute: EXECUTE, pollMs: POLL_MS, needBand: NEED_BAND });
   const once = process.argv.includes("--once");
   do {
-    try { await runCycle(); } catch (error) { appendLog("error", { error: String(error.stack || error) }); }
+    try {
+      const outcome = await runCycle();
+      if (["no-need", "no-helper"].includes(outcome.status)) {
+        appendLog("cycle_idle", outcome);
+      }
+    } catch (error) { appendLog("error", { error: String(error.stack || error) }); }
     if (!once) await new Promise((resolve) => setTimeout(resolve, POLL_MS));
   } while (!once);
 }
