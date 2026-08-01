@@ -67,6 +67,30 @@ test("reconcile preserves dynamics and historical relations", () => {
   assert.strictEqual(second.citizens["2"].active, false);
   assert.strictEqual(second.relations["1:2"].trust, 0.75);
   assert.strictEqual(second.relations["1:2"].structurallyActive, false);
+  assert.strictEqual(second.relations["1:2"].perspectives["1"].toward, 2);
+  assert.strictEqual(second.relations["1:2"].perspectives["2"].toward, 1);
+});
+
+test("help outcomes update asymmetric relationship perspectives", () => {
+  const edge = { a: 1, b: 2, sources: ["parent_child"] };
+  const state = D.reconcileState(null, graph([
+    { citizenId: 1, name: "Helper" },
+    { citizenId: 2, name: "Recipient" },
+  ], { "1:2": edge }), null);
+
+  D.applyEvent(state, {
+    type: "help_succeeded", helperId: 1, recipientId: 2,
+  }, null, 100);
+  assert.strictEqual(D.perspectiveFor(state, 2, 1).trust, 0.58);
+  assert.strictEqual(D.perspectiveFor(state, 1, 2).trust, 0.5);
+  assert.strictEqual(D.perspectiveFor(state, 2, 1).obligation, 0.1);
+  assert.strictEqual(state.relations["1:2"].trust, 0.54);
+
+  D.applyEvent(state, {
+    type: "help_refused", helperId: 1, recipientId: 2,
+  }, null, 200);
+  assert.strictEqual(D.perspectiveFor(state, 2, 1).trust, 0.52);
+  assert.strictEqual(D.perspectiveFor(state, 1, 2).trust, 0.5);
 });
 
 test("liked and disliked job changes update satisfaction and loyalty", () => {

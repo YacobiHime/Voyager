@@ -78,13 +78,56 @@ function ensureRelation(state, edge) {
       trust: 0.5,
       affinity: 0.5,
       debt: 0,
+      perspectives: {},
       lastEventGameTime: null,
     };
   } else {
     state.relations[key].structurallyActive = true;
     state.relations[key].sources = (edge.sources || []).slice();
   }
-  return state.relations[key];
+  const relation = state.relations[key];
+  relation.perspectives = relation.perspectives || {};
+  ensurePerspective(relation, relation.a, relation.b);
+  ensurePerspective(relation, relation.b, relation.a);
+  updateRelationAggregates(relation);
+  return relation;
+}
+
+function ensurePerspective(relation, from, toward) {
+  const key = String(from);
+  if (!relation.perspectives[key]) {
+    relation.perspectives[key] = {
+      toward,
+      trust: typeof relation.trust === "number" ? relation.trust : 0.5,
+      affinity: typeof relation.affinity === "number" ? relation.affinity : 0.5,
+      obligation: 0,
+      lastEventGameTime: null,
+    };
+  }
+  return relation.perspectives[key];
+}
+
+function updateRelationAggregates(relation) {
+  const views = Object.values(relation.perspectives || {});
+  if (!views.length) return relation;
+  relation.trust = round3(views.reduce((sum, p) => sum + p.trust, 0) / views.length);
+  relation.affinity = round3(views.reduce((sum, p) => sum + p.affinity, 0) / views.length);
+  // Compatibility field for Phase 1/2 readers. Directed obligation is the
+  // authoritative representation from Phase 3 onward.
+  relation.debt = Math.round(views.reduce((sum, p) => sum + p.obligation, 0) * 1000) / 1000;
+  return relation;
+}
+
+function relationFor(state, a, b) {
+  const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+  return state.relations[key] || null;
+}
+
+function perspectiveFor(state, from, toward) {
+  const relation = relationFor(state, from, toward);
+  if (!relation) return null;
+  relation.perspectives = relation.perspectives || {};
+  return ensurePerspective(relation, from, toward);
 }
 
 // Reconcile authoritative membership and structural edges while preserving
@@ -185,6 +228,45 @@ function applyEvent(state, event, personas, gameTime) {
   } else if (event.type === "edge_sources_changed") {
     const relation = state.relations[event.edge];
     if (relation) relation.sources = (event.to || []).slice();
+  } else if (event.type === "help_succeeded") {
+    const recipientView = perspectiveFor(state, event.recipientId, event.helperId);
+    const helperView = perspectiveFor(state, event.helperId, event.recipientId);
+    const relation = relationFor(state, event.helperId, event.recipientId);
+    if (recipientView && helperView && relation) {
+      recipientView.trust = round3(recipientView.trust + 0.08);
+      recipientView.affinity = round3(recipientView.affinity + 0.05);
+      recipientView.obligation = round3(recipientView.obligation + 0.1);
+      helperView.affinity = round3(helperView.affinity + 0.02);
+      recipientView.lastEventGameTime = gameTime == null ? null : gameTime;
+      helperView.lastEventGameTime = gameTime == null ? null : gameTime;
+      relation.lastEventGameTime = gameTime == null ? null : gameTime;
+      updateRelationAggregates(relation);
+      effect.trustDelta = 0.08;
+      effect.affinityDelta = 0.05;
+      effect.obligationDelta = 0.1;
+    }
+  } else if (event.type === "help_refused") {
+    const recipientView = perspectiveFor(state, event.recipientId, event.helperId);
+    const relation = relationFor(state, event.helperId, event.recipientId);
+    if (recipientView && relation) {
+      recipientView.trust = round3(recipientView.trust - 0.06);
+      recipientView.affinity = round3(recipientView.affinity - 0.03);
+      recipientView.lastEventGameTime = gameTime == null ? null : gameTime;
+      relation.lastEventGameTime = gameTime == null ? null : gameTime;
+      updateRelationAggregates(relation);
+      effect.trustDelta = -0.06;
+      effect.affinityDelta = -0.03;
+    }
+  } else if (event.type === "help_repaid") {
+    const repayerView = perspectiveFor(state, event.repayerId, event.recipientId);
+    const relation = relationFor(state, event.repayerId, event.recipientId);
+    if (repayerView && relation) {
+      repayerView.obligation = round3(repayerView.obligation - (event.amount || 0.1));
+      repayerView.lastEventGameTime = gameTime == null ? null : gameTime;
+      relation.lastEventGameTime = gameTime == null ? null : gameTime;
+      updateRelationAggregates(relation);
+      effect.obligationDelta = -(event.amount || 0.1);
+    }
   }
   return effect;
 }
@@ -210,6 +292,9 @@ module.exports = {
   reconcileState,
   jobPreferenceEffect,
   nutritionSeverity,
+  relationFor,
+  perspectiveFor,
+  updateRelationAggregates,
   applyEvent,
   loadState,
   saveState,

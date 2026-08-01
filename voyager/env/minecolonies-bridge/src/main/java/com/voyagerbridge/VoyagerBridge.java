@@ -431,6 +431,8 @@ public class VoyagerBridge {
             httpServer.createContext("/status", this::handleStatus);
             httpServer.createContext("/requestBuild", this::handleRequestBuild);
             httpServer.createContext("/giveToCitizen", this::handleGiveToCitizen);
+            httpServer.createContext("/citizenInventory", this::handleCitizenInventory);
+            httpServer.createContext("/transferCitizenItem", this::handleTransferCitizenItem);
             httpServer.createContext("/giveTexturedBlock", this::handleGiveTexturedBlock);
             httpServer.createContext("/openRequests", this::handleOpenRequests);
             httpServer.createContext("/resolveRequest", this::handleResolveRequest);
@@ -849,6 +851,16 @@ public class VoyagerBridge {
                         sb.append("],\"children\":[").append(kidsJson).append("],")
                           .append("\"siblings\":[").append(sibsJson).append("],")
                           .append("\"partner\":").append(partnerId == null ? "null" : partnerId).append(",");
+                        java.util.Optional<AbstractEntityCitizen> liveEntity = cit.getEntity();
+                        if (liveEntity.isPresent()) {
+                            BlockPos cp = liveEntity.get().blockPosition();
+                            sb.append("\"position\":{")
+                              .append("\"x\":").append(cp.getX()).append(",")
+                              .append("\"y\":").append(cp.getY()).append(",")
+                              .append("\"z\":").append(cp.getZ()).append("},");
+                        } else {
+                            sb.append("\"position\":null,");
+                        }
                         if (workBld != null) {
                             BlockPos wp = workBld.getPosition();
                             sb.append("\"workBuilding\":{")
@@ -1141,6 +1153,165 @@ public class VoyagerBridge {
         } catch (Exception e) {
             respond(exchange, 400, "{\"error\":\"" + escape(String.valueOf(e)) + "\"}");
         }
+    }
+
+    // GET /citizenInventory?colonyId=1&citizenId=3
+    // Read-only inventory summary for social-action feasibility checks. Counts
+    // are aggregated by registry id so callers never depend on slot layout.
+    private void handleCitizenInventory(HttpExchange exchange) throws IOException {
+        if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+            respond(exchange, 405, "{\"error\":\"use GET\"}");
+            return;
+        }
+        try {
+            java.util.Map<String, String> params = parseQuery(exchange.getRequestURI().getQuery());
+            int colonyId = Integer.parseInt(params.getOrDefault("colonyId", "1"));
+            int citizenId = Integer.parseInt(params.get("citizenId"));
+            java.util.concurrent.CompletableFuture<String> result = new java.util.concurrent.CompletableFuture<>();
+            server.execute(() -> {
+                try {
+                    IColony colony = IColonyManager.getInstance().getColonyByWorld(colonyId, server.overworld());
+                    if (colony == null) { result.complete("ERROR: no colony with id " + colonyId); return; }
+                    ICitizenData citizen = colony.getCitizenManager().getCivilian(citizenId);
+                    if (citizen == null) { result.complete("ERROR: no citizen with id " + citizenId); return; }
+                    java.util.Optional<AbstractEntityCitizen> entityOpt = citizen.getEntity();
+                    if (entityOpt.isEmpty()) {
+                        result.complete("ERROR: citizen " + citizenId + " has no live entity right now");
+                        return;
+                    }
+                    InventoryCitizen inv = entityOpt.get().getInventoryCitizen();
+                    java.util.Map<String, Integer> counts = new java.util.TreeMap<>();
+                    for (int slot = 0; slot < inv.getSlots(); slot++) {
+                        ItemStack stack = inv.getStackInSlot(slot);
+                        if (stack.isEmpty()) continue;
+                        ResourceLocation key = ForgeRegistries.ITEMS.getKey(stack.getItem());
+                        if (key != null) counts.merge(key.toString(), stack.getCount(), Integer::sum);
+                    }
+                    StringBuilder json = new StringBuilder("{\"citizenId\":")
+                        .append(citizenId).append(",\"items\":[");
+                    boolean first = true;
+                    for (java.util.Map.Entry<String, Integer> entry : counts.entrySet()) {
+                        if (!first) json.append(",");
+                        json.append("{\"item\":\"").append(escape(entry.getKey()))
+                            .append("\",\"count\":").append(entry.getValue()).append("}");
+                        first = false;
+                    }
+                    json.append("]}");
+                    result.complete(json.toString());
+                } catch (Exception e) {
+                    LOGGER.error("citizenInventory failed", e);
+                    result.complete("ERROR: " + e);
+                }
+            });
+            String outcome = result.get();
+            if (outcome.startsWith("ERROR")) {
+                respond(exchange, 500, "{\"error\":\"" + escape(outcome) + "\"}");
+            } else {
+                respond(exchange, 200, outcome);
+            }
+        } catch (Exception e) {
+            respond(exchange, 400, "{\"error\":\"" + escape(String.valueOf(e)) + "\"}");
+        }
+    }
+
+    // POST /transferCitizenItem?colonyId=1&fromCitizenId=2&toCitizenId=3&item=minecraft:bread&count=1
+    // Atomically moves existing inventory between two live citizens. Unlike
+    // /giveToCitizen this creates no resources, so a successful social-help
+    // event corresponds to a real cost and a real recipient gain.
+    private void handleTransferCitizenItem(HttpExchange exchange) throws IOException {
+        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+            respond(exchange, 405, "{\"error\":\"use POST\"}");
+            return;
+        }
+        try {
+            java.util.Map<String, String> params = parseQuery(exchange.getRequestURI().getQuery());
+            int colonyId = Integer.parseInt(params.getOrDefault("colonyId", "1"));
+            int fromId = Integer.parseInt(params.get("fromCitizenId"));
+            int toId = Integer.parseInt(params.get("toCitizenId"));
+            String itemId = params.get("item");
+            int count = Integer.parseInt(params.getOrDefault("count", "1"));
+            int maxDistance = Integer.parseInt(params.getOrDefault("maxDistance", "4"));
+            if (fromId == toId) throw new IllegalArgumentException("citizens must differ");
+            if (count <= 0 || count > 64) throw new IllegalArgumentException("count must be 1..64");
+            if (maxDistance < 1 || maxDistance > 128) {
+                throw new IllegalArgumentException("maxDistance must be 1..128");
+            }
+
+            java.util.concurrent.CompletableFuture<String> result = new java.util.concurrent.CompletableFuture<>();
+            server.execute(() -> {
+                try {
+                    IColony colony = IColonyManager.getInstance().getColonyByWorld(colonyId, server.overworld());
+                    if (colony == null) { result.complete("ERROR: no colony with id " + colonyId); return; }
+                    ICitizenData from = colony.getCitizenManager().getCivilian(fromId);
+                    ICitizenData to = colony.getCitizenManager().getCivilian(toId);
+                    if (from == null || to == null) {
+                        result.complete("ERROR: citizen not found (from=" + fromId + ", to=" + toId + ")");
+                        return;
+                    }
+                    if (from.getEntity().isEmpty() || to.getEntity().isEmpty()) {
+                        result.complete("ERROR: both citizens must have live entities");
+                        return;
+                    }
+                    AbstractEntityCitizen fromEntity = from.getEntity().get();
+                    AbstractEntityCitizen toEntity = to.getEntity().get();
+                    double distance = fromEntity.distanceTo(toEntity);
+                    if (distance > maxDistance) {
+                        result.complete(String.format(java.util.Locale.ROOT,
+                            "ERROR: citizens are %.1f blocks apart (maxDistance=%d)", distance, maxDistance));
+                        return;
+                    }
+                    Item item = ForgeRegistries.ITEMS.getValue(new ResourceLocation(itemId));
+                    if (item == null || item == net.minecraft.world.item.Items.AIR) {
+                        result.complete("ERROR: unknown item id " + itemId); return;
+                    }
+                    InventoryCitizen fromInv = fromEntity.getInventoryCitizen();
+                    InventoryCitizen toInv = toEntity.getInventoryCitizen();
+                    int available = countItem(fromInv, item);
+                    if (available < count) {
+                        result.complete("ERROR: citizen " + fromId + " has " + available + "/" + count + " of " + itemId);
+                        return;
+                    }
+                    ItemStack simulated = insertCitizenItem(toInv, new ItemStack(item, count), true);
+                    if (!simulated.isEmpty()) {
+                        result.complete("ERROR: citizen " + toId + " has room for only "
+                            + (count - simulated.getCount()) + "/" + count + " of " + itemId);
+                        return;
+                    }
+                    extractItem(fromInv, item, count);
+                    ItemStack remainder = insertCitizenItem(toInv, new ItemStack(item, count), false);
+                    if (!remainder.isEmpty()) {
+                        // The capacity simulation and insertion run on the same
+                        // server task, so this is defensive rollback only.
+                        int delivered = count - remainder.getCount();
+                        extractItem(toInv, item, delivered);
+                        insertCitizenItem(fromInv, new ItemStack(item, count), false);
+                        result.complete("ERROR: transfer changed unexpectedly; rolled back delivered items");
+                        return;
+                    }
+                    result.complete("transferred " + count + " of " + itemId + " from citizen " + fromId
+                        + " to citizen " + toId);
+                } catch (Exception e) {
+                    LOGGER.error("transferCitizenItem failed", e);
+                    result.complete("ERROR: " + e);
+                }
+            });
+            String outcome = result.get();
+            if (outcome.startsWith("ERROR")) {
+                respond(exchange, 500, "{\"error\":\"" + escape(outcome) + "\"}");
+            } else {
+                respond(exchange, 200, "{\"result\":\"" + escape(outcome) + "\"}");
+            }
+        } catch (Exception e) {
+            respond(exchange, 400, "{\"error\":\"" + escape(String.valueOf(e)) + "\"}");
+        }
+    }
+
+    private static ItemStack insertCitizenItem(InventoryCitizen inv, ItemStack stack, boolean simulate) {
+        ItemStack remainder = stack;
+        for (int slot = 0; slot < inv.getSlots() && !remainder.isEmpty(); slot++) {
+            remainder = inv.insertItem(slot, remainder, simulate);
+        }
+        return remainder;
     }
 
     // GET  /neededResources?x=&y=&z=      - a builder hut's remaining material

@@ -116,6 +116,46 @@ Phase 3 までを最小完成線とする。ここまでで「個体差と社会
 
 主要指標は援助要請数、応答率、成功率、応答時間、信頼分布、孤立者数、状態変化の再現性とする。
 
+### 2026-08-01 実装判断 — 最小appraisalと身体化された援助
+
+ユーザーから「ペルソナ拡張前を安全に残したうえで、詳細判断はoperatorに委ねて実装を進める」
+方針を受け、`4c9a7fc`を拡張前の復元点として両remoteへ保存した。ライブJSONは
+`runtime_backups/pre_persona_v2_4c9a7fc_20260801T1325Z/`へコピーした。
+
+今回の実装は完全なFAtiMA/OCC互換を主張せず、**OCC/FAtiMAに着想を得た限定appraisal**とする。
+既存P1の遺伝セグメントを正本として維持し、次の価値傾向を決定論的に導出する。
+
+- family: empathy、loyalty、非greed
+- community: loyalty、empathy、obedience
+- fairness: empathy、非greed、obedience
+- reciprocity: empathy、sociability、非greed
+- autonomy: 非obedience、ambition
+
+新しい遺伝子を直ちに追加しなかった理由は、35市民の履歴を一括して架空の値で上書きせず、
+既存P1条件との比較可能性を保つためである。明示的な価値セグメントを次世代から遺伝させるかは
+教員相談・比較実験設計後の保留事項とする。
+
+援助要請では relevance、goalCongruence、normCompatibility、controllability、selfCost を評価し、
+concern、obligation、reluctance、distressを中間状態としてhelp/refuseの寄与へ変換する。
+各寄与、最終score、seed、選択結果をJSONLへ残す。LLMはこの正本計算には使わず、将来同じ構造化入力を
+渡す比較条件または発言表現に限定する。
+
+関係は既存の無向集計値を残しつつ、各辺に相互非対称な`perspectives`を追加する。
+援助成功時は受益者から援助者へのtrust、affinity、obligationを主に更新する。資源不足による
+`help_unable`と移動・API失敗の`help_failed`は、本人の拒否ではないためtrustを下げない。
+
+ゲーム内実行は、援助者が`/moveCitizen`で受益者へ歩き、6ブロック以内でのみ
+`/transferCitizenItem`が既存所持品を1個移す。`/giveToCitizen`による資源生成は援助成功に使わない。
+行動daemonはappend-onlyキューへ結果を書き、`social_observer`だけが動的状態をexactly-onceで更新する。
+
+ライブ限定試験では、市民17 Georgeが同居親子の市民18 Archieへ接近し、steak dinner 1個を移転した。
+その結果、Archie→Georgeだけtrust 0.50→0.58、affinity 0.50→0.55、obligation 0→0.10となり、
+George→Archieはtrust 0.50のままaffinityのみ0.52となった。
+
+**保留して記録する論点:** appraisal係数の較正、価値を明示的遺伝セグメントにするか、
+援助量を1個から需要量へ変えるか、拒否ペナルティの大きさ、確率選択のtemperature、
+感情状態を一回限りの評価から時間減衰する持続状態へ昇格するか。
+
 ## 確定した設計決定
 
 | # | 論点 | 決定 |

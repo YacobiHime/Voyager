@@ -31,6 +31,14 @@ description: VoyagerBridge mod のビルド→配備→サーバー再起動→�
      Minecraft の上限は256チャンクなので、矩形の包含チャンク数を事前に確認すること。
      2026-07-24 実測境界 X=393..654 / Z=-434..-210 は17×15=255チャンク。
    - 通常運用: `--no-agents` なしで起動
+   - Codex等のコマンド実行器がコマンド終了時に子プロセスを回収する環境では、通常の起動コマンドが
+     `Bridge ready`まで成功しても直後にJavaがログなしで消える。この場合は次のように独立sessionへ
+     切り離し、**別コマンド**で`/ping`とJava PIDを確認する。
+     ```bash
+     setsid -f env FORCELOAD_CX=501 FORCELOAD_CZ=-319 FORCELOAD_R=80 \
+       bash /root/mc-server-forge/start_server.sh --no-agents \
+       >/tmp/voyager_start_server.log 2>&1 </dev/null
+     ```
    - 起動完了待ちは Bash の `run_in_background` + until ループで `curl -s http://localhost:8089/status` をポーリング(foreground の sleep 連鎖は harness にブロックされる)。起動には 60〜90 秒かかる。
    - コマンドを `&` で背景化した壊れたチェーンで「サーバーが落ちたまま」になった事故あり。起動系は必ず単独コマンドで。
 

@@ -93,6 +93,8 @@ MineColonies は Minecraft 上に「町 (コロニー)」を作り、**市民 (c
 |---|---|
 | `/ping` | 疎通確認 |
 | `/status` | 全コロニーの建物・市民・在庫を JSON で返却 |
+| `/citizenInventory` | 指定市民が実際に所持するアイテムと個数を集計 |
+| `/transferCitizenItem` | 距離・在庫・受取容量を検証し、市民間で既存アイテムを移転 |
 | `/place` | 指定座標に小屋ブロックを設置 (既存建物との衝突を事前チェック) |
 | `/found` | 町役場をコロニーとして設立 |
 | `/spawnCitizen` | 市民を 1 人スポーン |
@@ -102,6 +104,8 @@ MineColonies は Minecraft 上に「町 (コロニー)」を作り、**市民 (c
 | `/openRequests` | 市民の未解決リクエスト一覧 |
 | `/surfaceY`, `/heightmap` | 地表 Y を返す (地形対応 placeNext 用) |
 | `/tickrate` | サーバー tick 倍率を制御 (auto ガバナー付き) |
+
+`/status`の市民情報には、社会行動の身体性を検証するためライブ位置も含まれます。
 
 エンドポイント全体像は `IMPLEMENTATION_NOTES.md` またはメモリ `minecolonies-bridge-api` を参照してください。
 
@@ -116,7 +120,21 @@ MineColonies 本体のバグや癖に対して、bridge 側で以下のような
 
 ---
 
-## 3. LLM 市長 (council.js) と供給デーモン (supply_bot.js)
+## 3. 外部エージェント層
+
+### 社会シミュレーション層
+
+- `persona_daemon.js`: 安定した個体IDにP1ペルソナと家系を対応させる
+- `social_observer.js`: 同居・親子・職場などの関係グラフと、感情・信頼・義理の動的状態を更新する
+- `social_help_daemon.js`: 困窮を検出し、関係者から援助者を選び、appraisalの判断根拠を保存する。実行時は
+  援助者を相手まで歩かせ、所持している食料だけを移転する
+- `social_action_queue.js`: 行動結果をappend-onlyで受け渡し、observerがoffsetにより一度だけ関係へ反映する
+
+関係は対称な辺だけでなく、AからBへのtrust/affinity/obligationとBからAへの値を別々に持ちます。
+これにより、援助を受けた側だけが強い信頼や返礼義務を持つ状態を表現できます。現在、援助daemonは
+限定試験のみで、連続自動実行は係数較正前のため停止しています。
+
+### LLM 市長 (council.js) と供給デーモン (supply_bot.js)
 
 サーバー外部で常駐する 2 つの Node.js プロセスが実際の "統治" を担います。
 

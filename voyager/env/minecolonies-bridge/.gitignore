@@ -35,3 +35,8 @@ social_state.json
 social_graph_events.jsonl
 social_observer.pid
 social_dynamics.json
+runtime_backups/
+social_action_events.jsonl
+social_help_events.jsonl
+social_help_runtime.json
+social_help.pid

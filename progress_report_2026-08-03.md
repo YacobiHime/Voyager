@@ -15,9 +15,28 @@
   ペルソナ・動的感情・有向な個人間関係をゲーム内行動と結果へ接続する閉ループを主な候補とした。
 - 卒論の最小完成線として、困窮検出、援助要請、相手選択、実行、成否確認、関係更新を
   再現可能な条件で比較する方針を検討した。研究室教員との相談後に研究質問と新規性を確定する。
-- 実装候補にはOCC/FAtiMA型appraisalと簡略BDIを挙げたが、計画は未確定でありコードへは未反映。
+- OCC/FAtiMA型appraisalを参照した最小モデルを採用した。完全準拠や新規感情理論の主張はせず、
+  各判断の寄与を記録できる実験用近似として実装した。
 
-### 2.2 一時欠落による誤死亡の修正
+### 2.2 ペルソナ拡張前の保全
+
+- バグ修正commit `4c9a7fc`を`origin`と`fork`へpushし、拡張前のソース復元点とした。
+- personas、templates、social graph、dynamic state、イベントログ約11MBを時刻付きでバックアップし、
+  SHA-256を確認した。
+
+### 2.3 Phase 3 最小appraisal・援助閉ループ
+
+- 既存P1からfamily、community、fairness、reciprocity、autonomyを決定論的に導出し、
+  relevance、goalCongruence、normCompatibility、controllability、selfCostを評価する
+  `voyager-appraisal-v1`を実装した。
+- concern、obligation、reluctance、distressを中間状態としてhelp/refuseを採点し、全寄与を保存する。
+- 関係辺に相互非対称な`perspectives`を後方互換追加した。
+- append-only行動キューを追加し、social_observerがoffsetを保存して結果を一度だけreducerへ適用する。
+- Bridgeへ`/citizenInventory`、近接制約付き`/transferCitizenItem`、`/status.position`を追加した。
+- `social_help_daemon.js`が困窮者、関係者、所持食料を選び、実移動後に既存食料を1個移転する。
+- 資源不足は`help_unable`、移動・API失敗は`help_failed`として、意図的拒否と区別する。
+
+### 2.4 一時欠落による誤死亡の修正
 
 - `persona_daemon.js`は、市民が`/status`から3 poll連続で欠落すると死亡扱いしていた。
   実環境では生存市民24がこの条件を満たし、`personas.json`で誤って`deceased=true`になっていた。
@@ -37,6 +56,17 @@
 | `git diff --check` | PASS |
 | ライブ復活確認 | PASS。市民24を`restored`し、`deceased=false`を永続化 |
 | ライブ名同期 | PASS。市民8・24で`identity_updated`を一度だけ記録 |
+| Appraisal単体テスト | 5/5 PASS |
+| Phase 3動的状態 | 8/8 PASS |
+| 行動キュー | PASS（partial line保留、byte offset再開） |
+| observer行動適用 | PASS（同一イベントを一度だけ適用） |
+| 援助daemon | PASS（成功・shadow・失敗・資源不足） |
+| Bridgeビルド | JDK17、BUILD SUCCESSFUL |
+| 市民位置 | 35/35取得 |
+| 遠距離移転拒否 | 166.1ブロックをHTTP 500で拒否、所持数不変 |
+| 資源保存 | 1個往復で送信96→95→96、受信0→1→0 |
+| ライブ援助 | 市民17→18、実移動後steak dinner 1個移転成功 |
+| 非対称関係更新 | 受益者側trust 0.50→0.58、offset 275/275 |
 
 ## 4. 現在のライブ状態
 
@@ -45,6 +75,8 @@
 - コロニー`NormalActual`は35市民。市民24 `June D. Harris`の生存を`/status`で確認した。
 - 修正版persona_daemonをライブ再起動し、市民24の誤死亡を解除した。現在の台帳は
   `deceased=false`、`deceasedAt=null`、name=`June D. Harris`。
+- Bridge最終版を配備し、全建物範囲255チャンクと適応tickrateを復元した。
+- social_helpは限定`--once`試験のみ。連続自動実行は係数較正前のため開始していない。
 
 ## 5. 未解決事項
 
@@ -53,14 +85,17 @@
 - guardの`WAIT_FOR_FOOD`ウェッジ、Restaurant blueprintの座席欠落、forceload上限付近の運用など、
   以前からの既知問題は未解消。
 - 既存未追跡の`compare_metrics.js`、`ops.js`、`zone_audit.js`は変更せず保全中。
+- appraisal係数、拒否ペナルティ、softmax temperature、明示的な価値遺伝は未較正。
+- 移動timeoutは適応tickrateで初回失敗し、ゲーム内1200秒へ延長して成功した。実距離別の上限は要計測。
 
 ## 6. 次の一週間
 
-1. 既知不具合を再現性、研究データへの影響、修正コストで優先順位付けする。
-2. ペルソナ拡張前の復元点とライブJSONバックアップを作成する。
-3. 比較実験に必要なイベントログ、意思決定ログ、集計出力の不足を洗い出す。
-4. 説明可能な最小appraisalと援助判断を後方互換に実装する。
+1. appraisal係数を極端ペルソナと複数seedで操作チェックする。
+2. ペルソナなし／関係なし／関係あり／appraisalありの比較runnerと集計を作る。
+3. 限定ライブ試行を増やし、移動距離・成功率・回復時間を測定する。
+4. 教員相談後、価値の明示的遺伝と持続感情を実装対象にするか決める。
 
 ## 7. 主要コミット
 
-- 今週分はcommit/push準備中。誤死亡・名前同期修正は単体およびライブ検証済み。
+- `4c9a7fc` — 誤死亡自己修復、名前同期、週次報告開始（両remoteへpush済み）
+- Phase 3閉ループ実装 — 本報告を含む後続commit（ライブ検証済み、両remoteへ反映）。

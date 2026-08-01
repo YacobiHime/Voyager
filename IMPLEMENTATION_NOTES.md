@@ -53,6 +53,9 @@ spawnAgent() → bot.spawn → turn(name) ループ(4.5秒ごとに自分自身�
 | `VoyagerBridge.java` | Forge Mod本体。HTTP API(port 8089)を生やしてサーバーJVM内から直接MineColonies操作 |
 | `council.js` | 複数のLLM「知事」ペルソナが交代でコロニー運営方針を議論・実行するメインループ |
 | `supply_bot.js` | council.jsと並走し、全市民のオープンリクエストを6秒ごとに自動解決するサポートスクリプト |
+| `social_appraisal.js` | P1特性・価値・関係・状態から援助判断と説明可能な寄与を計算 |
+| `social_help_daemon.js` | 困窮検出→相手選択→実移動→既存食料移転を行うPhase 3 daemon |
+| `social_action_queue.js` | 行動daemonから単一writerのsocial_observerへ結果を渡すappend-onlyキュー |
 | `building_registry.json` | block_id → Colonialパック blueprint パスのマッピング表 |
 
 ### Domum Ornamentum フレーム付きブロックの取り扱い(重要)
@@ -143,6 +146,8 @@ OPENROUTER_API_KEY=sk-... node council.js > /tmp/council.log 2>&1 &
 | `/spawnCitizen` | POST | colonyId | 市民を1人追加スポーン |
 | `/requestBuild` | POST | x,y,z | 建物に work order を発行(着工指示) |
 | `/giveToCitizen` | POST | colonyId,citizenId,item,count | 市民インベントリにアイテムを直接挿入 |
+| `/citizenInventory` | GET | colonyId,citizenId | 市民の現在所持品をアイテムID別に集計（読み取り専用） |
+| `/transferCitizenItem` | POST | colonyId,fromCitizenId,toCitizenId,item,count,maxDistance | 近接する市民間で既存所持品を原子的に移転 |
 | `/resolveRequest` | POST | x,y,z,citizenId | 市民のオープンリクエストを解決(textured blockは素材消費→完成品挿入→OVERRULED) |
 | `/giveTexturedBlock` | POST | colonyId,citizenId,block,count,tex1,mat1... | Domum Ornamentum フレームブロックを合成して渡す |
 | `/openRequests` | GET | x,y,z,citizenId | 市民の未解決リクエスト一覧 |

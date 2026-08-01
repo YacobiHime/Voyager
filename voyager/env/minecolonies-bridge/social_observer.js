@@ -5,6 +5,7 @@ const path = require("path");
 const S = require("./social_graph.js");
 const D = require("./social_dynamics.js");
 const P = require("./personas.js");
+const Q = require("./social_action_queue.js");
 
 const POLL_MS = parseInt(process.env.SOCIAL_POLL_MS || "60000", 10);
 const EVENT_FILE = process.env.SOCIAL_EVENT_FILE ||
@@ -67,6 +68,16 @@ async function pollOnce(previous, opts) {
     appendEvent(event, opts && opts.eventFile, opts && opts.now, colony.gameTime);
     D.applyEvent(dynamicState, event, personas, colony.gameTime);
   }
+  const actionOffset = dynamicState._meta.actionEventOffset || 0;
+  const pending = Q.readActions(actionOffset, opts && opts.actionFile);
+  for (const event of pending.events) {
+    appendEvent(
+      { type: "social_action_applied", action: event },
+      opts && opts.eventFile, opts && opts.now, colony.gameTime
+    );
+    D.applyEvent(dynamicState, event, personas, event.gameTime == null ? colony.gameTime : event.gameTime);
+  }
+  dynamicState._meta.actionEventOffset = pending.nextOffset;
   D.saveState(dynamicState, opts && opts.dynamicsFile);
   return { ...result, dynamicState };
 }
