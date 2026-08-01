@@ -98,4 +98,4 @@
 ## 7. 主要コミット
 
 - `4c9a7fc` — 誤死亡自己修復、名前同期、週次報告開始（両remoteへpush済み）
-- Phase 3閉ループ実装 — 本報告を含む後続commit（ライブ検証済み、両remoteへ反映）。
+- `68fdcf2` — Phase 3 appraisal・有向関係・身体化された援助閉ループ（両remoteへpush済み）
