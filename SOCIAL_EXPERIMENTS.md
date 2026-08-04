@@ -33,6 +33,23 @@ node social_experiment.js \
 `no_history=0.7018`、`helped_before=0.8322`、`refused_before=0.3007`。
 方向は設計どおりだが、拒否履歴の効果が大きいため、この値を妥当性の証拠とはせず係数較正対象とする。
 
+## 具体シナリオ: 食料1食の配分
+
+`food_allocation_scenario.js`は、実graphから家族辺と家族以外の辺を両方持つ援助者を選び、
+親しい軽度空腹者と関係の薄い重度空腹者のどちらへ1食を渡すか、または保持するかを比較する。
+物理距離は同じ12ブロックに固定し、関係性と必要性の競合だけを明示する。
+
+```bash
+node test_food_allocation_scenario.js
+node food_allocation_scenario.js \
+  --output=food_allocation_results/pilot_v1.json
+```
+
+2026-08-04の24 scenarioでは、`uniform`は24人全員が重症者、`persona`は重症者15・保持9、
+`persona_relation`と`temporal`は家族15・保持9だった。この反転は操作確認として有用だが、
+家族効果が強すぎる可能性があるため、係数を結果へ合わせず空腹差の感度分析を行う。
+実験設計、仮説、ライブ化の条件は`FOOD_ALLOCATION_SCENARIO.md`を参照する。
+
 ## 局所情報伝播の4条件
 
 `social_information_runner.js`は、最大次数の市民を脅威警報源とし、構造辺だけを通して伝達する。
