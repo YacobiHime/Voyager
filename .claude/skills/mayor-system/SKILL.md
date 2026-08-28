@@ -5,7 +5,7 @@ description: LLM市長(council.js)の設計・調整・運用ガイド。市長�
 
 # LLM市長システム(council.js)ランブック
 
-`/root/Voyager/voyager/env/minecolonies-bridge/council.js` が本体。ローカル ollama
+`voyager/env/minecolonies-bridge/council.js` が本体。ローカル ollama
 (192.168.15.150:11434 / gemma4:e4b)で複数の「統治者(governor)」ペルソナが合議して
 コロニーの建設判断を下し、同時に各市民が短い在職セリフを喋る。全発言はサーバー
 コンソール `say` 経由でゲーム内チャットに出る。**council.js は Minecraft に bot として
@@ -66,14 +66,21 @@ council.js 側の `.replace()` も足すこと。
 
 ## 運用(起動・監視・再起動)
 
+`council.js` のゲーム内発言は `CMD_PIPE` 環境変数で指定した FIFO へ書く。未指定時は
+現行 mine-server 配置の `/home/mine-admin/mc-server-forge/cmd_pipe` を使う。Forge 側も
+同じ FIFO を標準入力として読む必要があるため、現行配置では直接 `run.sh` を起動せず
+`/home/mine-admin/mc-server-forge/start_server.sh` を使う。
+
 ```bash
 # 再起動(必ずサブシェル内cd。裸起動は即死)
 pkill -f 'node council\.js$'; sleep 2
-(cd /root/Voyager/voyager/env/minecolonies-bridge && setsid nohup node council.js >> council5.log 2>&1 &)
+(cd /home/mine-admin/Voyager/voyager/env/minecolonies-bridge && \
+  setsid -f env CMD_PIPE=/home/mine-admin/mc-server-forge/cmd_pipe \
+  node council.js >> council5.log 2>&1 </dev/null)
 # 稼働確認(ちょうど1プロセス)
 pgrep -fc 'node council\.js$'
 # 挙動確認(統治者の choice と say が出る)
-tail -f /root/Voyager/voyager/env/minecolonies-bridge/council5.log
+tail -f /home/mine-admin/Voyager/voyager/env/minecolonies-bridge/council5.log
 ```
 
 - **常駐化済み**(MAX_CYCLES=Infinity)。colony_watch が異常死時のみ自動再起動
