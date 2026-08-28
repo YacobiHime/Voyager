@@ -99,6 +99,7 @@ venv.bak/
 
 # mkdocs documentation
 /site
+wiki/site/
 
 # mypy
 .mypy_cache/
@@ -127,3 +128,5 @@ debug_*
 logs/
 plot_iter.py
 *.svg
+# claude agent worktrees
+.claude/worktrees/
