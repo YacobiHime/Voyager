@@ -357,6 +357,15 @@ function buildCandidates(status, researchNeeds = {}, demandRank = {}) {
       0,
       ...buildings.filter((b) => b.type === "blockhutbuilder" && b.operational).map((b) => b.level)
     );
+    const operationalBuilders = buildings.filter(
+      (b) => b.type === "blockhutbuilder" && b.operational
+    );
+    const builderCanReach = (target) => operationalBuilders.some((builder) => {
+      const dx = Number(builder.x) - Number(target.x);
+      const dy = Number(builder.y) - Number(target.y);
+      const dz = Number(builder.z) - Number(target.z);
+      return dx * dx + dy * dy + dz * dz <= 100 * 100;
+    });
     // Progression = town-hall level (MineColonies: buildings can't exceed it, it
     // caps colony size, gates research). It is the axis for "how much" (count)
     // and "how deep" (level) targets.
@@ -387,6 +396,15 @@ function buildCandidates(status, researchNeeds = {}, demandRank = {}) {
     const pendingCount = buildings.filter((b) => b.pending).length;
     const builderCount = Math.max(1, buildings.filter((b) => b.type === "blockhutbuilder" && b.operational).length);
     const backlogFull = pendingCount >= builderCount * 3;
+    // A placed level-0 hut is already construction backlog even before it has
+    // a Work Order. Do not place another building until each buildable shell
+    // has at least been submitted. The old pending-only gate let the mayor
+    // place one of every type while pending stayed false.
+    const awaitingBuildOrder = buildings.some(
+      (b) => !b.operational && b.level === 0 && !b.pending &&
+        b.inTerritory && !researchLocked(b.type) &&
+        (operationalBuilders.length === 0 || builderCanReach(b))
+    );
     for (const b of buildings) {
       if (backlogFull) break;
       if (b.pending || !b.inTerritory) continue;
@@ -394,6 +412,11 @@ function buildCandidates(status, researchNeeds = {}, demandRank = {}) {
         // Research-locked shell: requestBuild would just error. Don't offer it
         // (and flag the block so University gets prioritized to unlock it).
         if (researchLocked(b.type)) { researchBlockedPending = true; continue; }
+        // The Bridge remains the source of truth and still rejects out-of-range
+        // builds. Filtering the same known-invalid choice here prevents the LLM
+        // from spending every turn retrying it. With no operational builder we
+        // fail open so bootstrap behavior remains available.
+        if (operationalBuilders.length > 0 && !builderCanReach(b)) continue;
         candidates.push({
           label: `requestBuild ${b.type} @(${b.x},${b.y},${b.z}) 未着工→着工させる(重要)`,
           action: { action: "requestBuild", x: b.x, y: b.y, z: b.z },
@@ -462,7 +485,7 @@ function buildCandidates(status, researchNeeds = {}, demandRank = {}) {
     // not just when population already overflows - otherwise pop lags the job
     // slots and workplaces stay empty. Freeze still applies when too many are
     // jobless (housing running ahead of actually-filled jobs).
-    if (housing < targetPop && !backlogFull && !housingFrozen) {
+    if (housing < targetPop && !backlogFull && !awaitingBuildOrder && !housingFrozen) {
       candidates.push({
         label: `placeNext minecolonies:blockhutcitizen(住居の新設。容量${housing}<目標${targetPop}[就労建物${jobBuildings}]なので最優先級)`,
         action: { action: "placeNext", block: "minecolonies:blockhutcitizen" },
@@ -478,7 +501,7 @@ function buildCandidates(status, researchNeeds = {}, demandRank = {}) {
     // (housing) has its own pop>housing path above and is excluded here.
     // (Before this, every unbuilt type was an equal shuffled option, so gemma
     // placed luxury buildings as readily as farms - 2026-07-11.)
-    if (!backlogFull) {
+    if (!backlogFull && !awaitingBuildOrder) {
       const tierOf = (v) => (typeof v.tier === "number" ? v.tier : 4);
       // "wanted by count" ignoring the research gate - used to detect types the
       // mayor would place if the research were done (drives University-first).
