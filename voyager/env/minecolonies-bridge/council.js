@@ -754,8 +754,28 @@ async function governorTurn(gov, history, status) {
 
 async function runGovernorAction(action) {
   switch (action.action) {
-    case "placeNext":
-      return httpRequest("POST", `/placeNext?block=${encodeURIComponent(action.block)}&colonyId=${action.colonyId || COLONY_ID}`);
+    case "placeNext": {
+      const placed = await httpRequest(
+        "POST",
+        `/placeNext?block=${encodeURIComponent(action.block)}&colonyId=${action.colonyId || COLONY_ID}`
+      );
+      if (placed.status < 200 || placed.status >= 300) return placed;
+      const pos = parsePlacedPosition(placed.body);
+      if (!pos) return placed;
+      // Placement and construction are separate MineColonies operations. Once
+      // the LLM has chosen the building type, submitting that exact hut for
+      // construction is deterministic bookkeeping, not another policy choice.
+      // Doing it here prevents an unbuilt shell from depending on a later LLM
+      // turn where the model may incorrectly choose wait.
+      const requested = await httpRequest(
+        "POST",
+        `/requestBuild?x=${pos.x}&y=${pos.y}&z=${pos.z}`
+      );
+      return {
+        status: requested.status,
+        body: `${placed.body} auto-requestBuild=${requested.body}`,
+      };
+    }
     case "place":
       return httpRequest("POST", `/place?x=${action.x}&y=${action.y}&z=${action.z}&block=${encodeURIComponent(action.block)}`);
     case "found":
@@ -776,6 +796,12 @@ async function runGovernorAction(action) {
     default:
       throw new Error("Unknown action: " + JSON.stringify(action));
   }
+}
+
+function parsePlacedPosition(body) {
+  const match = String(body).match(/\[pos:(-?\d+),(-?\d+),(-?\d+)\]/);
+  if (!match) return null;
+  return { x: Number(match[1]), y: Number(match[2]), z: Number(match[3]) };
 }
 
 // ---------- Citizen voice ----------
@@ -861,7 +887,10 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-module.exports = { askLLM, buildGovernorSystemPrompt, extractFirstJSON, buildCandidates, GOVERNORS, MODEL, GOVERNOR_REPLY_SCHEMA };
+module.exports = {
+  askLLM, buildGovernorSystemPrompt, extractFirstJSON, buildCandidates,
+  parsePlacedPosition, GOVERNORS, MODEL, GOVERNOR_REPLY_SCHEMA,
+};
 
 if (require.main === module) {
   main().catch((e) => console.error("FATAL", e));

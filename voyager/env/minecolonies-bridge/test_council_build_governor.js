@@ -1,5 +1,5 @@
 const assert = require("assert");
-const { buildCandidates } = require("./council.js");
+const { buildCandidates, parsePlacedPosition } = require("./council.js");
 
 function colony(buildings) {
   return [{
@@ -59,5 +59,11 @@ function actionsFor(buildings) {
   ]);
   assert(actions.some((action) => action.action === "requestBuild" && action.x === 101));
 }
+
+assert.deepStrictEqual(
+  parsePlacedPosition('{"result":"placed hut [pos:-12,-60,34]"}'),
+  { x: -12, y: -60, z: 34 }
+);
+assert.strictEqual(parsePlacedPosition('{"error":"no valid position"}'), null);
 
 console.log("ALL PASS (council build governor)");

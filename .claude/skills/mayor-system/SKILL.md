@@ -32,6 +32,7 @@ gemma級のモデルは**自由記述のaction JSONを作れない**(action名�
 | **spawn-gate** | 住居に空きがある時だけ spawnCitizen を提示 | 毎ターン選んで人口暴走するため |
 | **backlog** | 未着工のlv0ハットがあれば追加配置を止めて着工を優先。建設中 ≥ 稼働builder×3 でも新規建設を止める | pendingになる前の空ハットを大量配置した事故と、builderが捌ける以上の発注を防ぐため |
 | **builder距離** | 稼働builderがいる時は全hutから100ブロック圏外の着工候補をメニューから除外 | Bridgeの正当な距離拒否へLLMが固執するのを防ぐため |
+| **配置後の自動着工** | LLMが`placeNext`で建物種を選んだら、返却座標へ同じ処理内で`requestBuild`する | 置いた後の別ターンでLLMが`wait`を選び、空ハットが残るのを防ぐため |
 | **dedup** | placeNext は「コロニーに無いタイプ」のみ提示 | 同型を無限に建てるため(38 alchemist) |
 | **maxLevel** | `b.maxLevel`(getMaxBuildingLevel)超のupgradeを除外 | tavern lv3・postbox lv1 等の無意味upgrade |
 | **shuffle** | wait以外の候補順をランダム化 | e4bの低番号位置バイアス(先頭のalchemistを常に選んだ) |
