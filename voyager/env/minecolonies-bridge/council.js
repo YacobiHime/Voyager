@@ -80,12 +80,11 @@ const TURN_DELAY_MS = 2000;
 const CYCLE_DELAY_MS = 15000;
 const CITIZEN_VOICE_EVERY = 1;
 
-// 通常ワールド移行対応(2026-07-11): env で上書き可。未設定なら旧スーパーフラット
-// 基盤コロニーの値(200,-60,200)を維持するので既存挙動は不変。
+// env で上書き可。未設定時は、スポーン地点からすぐ観察できる原点を使う。
 const ANCHOR = {
-  x: parseInt(process.env.ANCHOR_X ?? "200", 10),
+  x: parseInt(process.env.ANCHOR_X ?? "0", 10),
   y: parseInt(process.env.ANCHOR_Y ?? "-60", 10),
-  z: parseInt(process.env.ANCHOR_Z ?? "200", 10),
+  z: parseInt(process.env.ANCHOR_Z ?? "0", 10),
 };
 
 const GOVERNORS = [
@@ -702,7 +701,7 @@ async function governorTurn(gov, history, status) {
   }
   // Anchor hint follows the live colony center so it stays correct after a
   // colony_watch restart that doesn't pass ANCHOR_* env (normal-world colonies
-  // are founded at their real terrain coords, not the old 200,-60,200 default).
+  // are founded at their real terrain coords, not the configured default).
   const anc = colony ? { x: colony.x, y: colony.y, z: colony.z } : ANCHOR;
   const userMsg = `[STATE] anchor ${anc.x},${anc.y},${anc.z}\ncolonies: ${JSON.stringify(status)}${hint}\n直近の会話: ${sharedChatLog
     .slice(-8)

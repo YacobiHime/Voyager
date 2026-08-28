@@ -8,7 +8,7 @@
 - Voyager: `/home/mine-admin/Voyager`
 - ゲームポート: `25565`
 - Voyager Bridge API: `127.0.0.1:8089`
-- コロニー中心: `X=200, Y=-60, Z=200`
+- コロニー中心: `X=0, Y=-60, Z=0`
 - コロニーID: `1`
 
 ## 1. クライアントの準備
@@ -157,17 +157,23 @@ cp /home/mine-admin/Voyager/voyager/env/minecolonies-bridge/supply_bot.log "$bac
 
 ## 6. 撮影・観察位置へ移動する
 
-コロニー予定地は `200, -60, 200` です。ゲーム内チャットで以下を実行すると、斜め上方の撮影位置へ移動できます。
+コロニー予定地は `0, -60, 0` です。ワールドのスポーン地点と同じ場所なので、通常は長距離移動する必要がありません。ゲーム内チャットで以下を実行すると、斜め上方の撮影位置へ移動できます。
+
+新規ワールド生成後は、サーバー側でワールドスポーンと観察者の個人スポーンを明示的に原点へ設定します。
+
+```bash
+printf 'setworldspawn 0 -60 0\nspawnpoint YacobiHime 0 -60 0\n' > /home/mine-admin/mc-server-forge/cmd_pipe
+```
 
 ```mcfunction
 /gamemode spectator
-/tp @s 245 -30 245 135 25
+/tp @s 45 -30 45 135 25
 ```
 
 真上から確認したい場合:
 
 ```mcfunction
-/tp @s 200 0 200 0 90
+/tp @s 0 0 0 0 90
 ```
 
 建築へ介入したい場合はCreativeへ戻します。
@@ -185,14 +191,14 @@ cp /home/mine-admin/Voyager/voyager/env/minecolonies-bridge/supply_bot.log "$bac
 最初に予定地周辺を常時読み込み対象にします。
 
 ```bash
-printf 'forceload add 192 192 223 223\n' > /home/mine-admin/mc-server-forge/cmd_pipe
+printf 'forceload add -16 -16 15 15\n' > /home/mine-admin/mc-server-forge/cmd_pipe
 ```
 
 Town Hallを配置してコロニーを創設します。
 
 ```bash
-curl -fsS -X POST 'http://127.0.0.1:8089/place?x=200&y=-60&z=200&block=minecolonies%3Ablockhuttownhall'
-curl -fsS -X POST 'http://127.0.0.1:8089/found?x=200&y=-60&z=200&name=Voyager%20Simulation'
+curl -fsS -X POST 'http://127.0.0.1:8089/place?x=0&y=-60&z=0&block=minecolonies%3Ablockhuttownhall'
+curl -fsS -X POST 'http://127.0.0.1:8089/found?x=0&y=-60&z=0&name=Voyager%20Simulation'
 ```
 
 Builder's Hutを配置します。応答に表示された `[pos:X,Y,Z]` を控え、その座標で着工を要求してください。
@@ -236,7 +242,7 @@ watch -n 5 'curl -fsS http://127.0.0.1:8089/status | jq'
 `Ctrl-C` で `watch` を終了し、Town Hallの建築を要求します。
 
 ```bash
-curl -fsS -X POST 'http://127.0.0.1:8089/requestBuild?x=200&y=-60&z=200'
+curl -fsS -X POST 'http://127.0.0.1:8089/requestBuild?x=0&y=-60&z=0'
 ```
 
 再び `/status` を確認し、`blockhuttownhall` が `"level": 1`、`"operational": true` になったらCouncilを起動します。
