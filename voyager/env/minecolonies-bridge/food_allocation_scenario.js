@@ -8,11 +8,16 @@ const path = require("path");
 const P = require("./personas.js");
 const S = require("./social_graph.js");
 const D = require("./social_dynamics.js");
+const A1 = require("./social_appraisal.js");
 const A2 = require("./social_appraisal_v2.js");
 const E = require("./social_experiment.js");
 
 const CONDITIONS = ["uniform", "persona", "persona_relation", "temporal"];
 const CHOICES = ["close_mild", "weak_severe", "keep"];
+
+function clamp01(value) {
+  return Math.max(0, Math.min(1, value));
+}
 
 function round4(value) {
   return Math.round(value * 10000) / 10000;
@@ -76,9 +81,14 @@ function buildScenarios(personas, graph, dynamics, opts) {
         return graph.nodes[String(candidate.recipientId)] &&
           (!recipientPersona || !recipientPersona.deceased);
       });
-    const close = adjacent.filter((candidate) => isFamily(candidate.sources))
+    let close = adjacent.filter((candidate) => isFamily(candidate.sources))
       .sort((a, b) => b.strength - a.strength || a.recipientId - b.recipientId)[0];
+    if (!close && o.allowNonFamilyClose) {
+      close = adjacent.slice()
+        .sort((a, b) => b.strength - a.strength || a.recipientId - b.recipientId)[0];
+    }
     const distant = adjacent.filter((candidate) => !isFamily(candidate.sources))
+      .filter((candidate) => !close || candidate.recipientId !== close.recipientId)
       .sort((a, b) => a.strength - b.strength || a.recipientId - b.recipientId)[0];
     if (!close || !distant || close.recipientId === distant.recipientId) continue;
     scenarios.push({
@@ -92,21 +102,58 @@ function buildScenarios(personas, graph, dynamics, opts) {
       helperState: { nutritionBand: "fed", sick: false, stress: 0.1 },
       transferableMeals: 1,
       distance: Number.isFinite(o.distance) ? o.distance : 12,
+      closeRelationType: isFamily(close.sources) ? "family" : "strongest_available",
       candidates: {
         close_mild: {
           ...close,
           role: "close_mild",
-          recipientState: { nutritionBand: "hungry", sick: false, stress: 0.2 },
+          recipientState: {
+            nutritionBand: "hungry",
+            needSeverity: clamp01(Number.isFinite(o.closeNeed) ? o.closeNeed : 0.5),
+            sick: false,
+            stress: 0.2,
+          },
         },
         weak_severe: {
           ...distant,
           role: "weak_severe",
-          recipientState: { nutritionBand: "starving", sick: false, stress: 0.4 },
+          recipientState: {
+            nutritionBand: "starving",
+            needSeverity: clamp01(Number.isFinite(o.weakNeed) ? o.weakNeed : 1),
+            sick: false,
+            stress: 0.4,
+          },
         },
       },
     });
   }
   return scenarios;
+}
+
+function withSeverities(scenario, closeNeed, weakNeed) {
+  const close = clamp01(closeNeed);
+  const weak = clamp01(weakNeed);
+  return {
+    ...scenario,
+    severityId: `${close.toFixed(3)}:${weak.toFixed(3)}`,
+    candidates: {
+      ...scenario.candidates,
+      close_mild: {
+        ...scenario.candidates.close_mild,
+        recipientState: {
+          ...scenario.candidates.close_mild.recipientState,
+          needSeverity: close,
+        },
+      },
+      weak_severe: {
+        ...scenario.candidates.weak_severe,
+        recipientState: {
+          ...scenario.candidates.weak_severe.recipientState,
+          needSeverity: weak,
+        },
+      },
+    },
+  };
 }
 
 function candidateInput(scenario, role, condition) {
@@ -170,20 +217,45 @@ function chooseAllocation(scenario, condition, opts) {
       decision: o.includeTrace ? decision : undefined,
     };
   }
-  const ranked = ["weak_severe", "close_mild"]
-    .sort((a, b) => scored[b].margin - scored[a].margin);
-  const selected = scored[ranked[0]].margin > 0 ? ranked[0] : "keep";
+  let selected;
+  if (o.mode === "sample") {
+    const utilities = {
+      close_mild: scored.close_mild.margin,
+      weak_severe: scored.weak_severe.margin,
+      keep: 0,
+    };
+    const temperature = Math.max(0.05, Number.isFinite(o.temperature) ? o.temperature : 0.35);
+    const max = Math.max(...Object.values(utilities));
+    const weighted = CHOICES.map((choice) => ({
+      choice,
+      weight: Math.exp((utilities[choice] - max) / temperature),
+    }));
+    const total = weighted.reduce((sum, item) => sum + item.weight, 0);
+    let roll = A1.seededUnit(o.seed == null ? "0" : o.seed) * total;
+    selected = weighted[weighted.length - 1].choice;
+    for (const item of weighted) {
+      roll -= item.weight;
+      if (roll <= 0) { selected = item.choice; break; }
+    }
+  } else {
+    const ranked = ["weak_severe", "close_mild"]
+      .sort((a, b) => scored[b].margin - scored[a].margin);
+    selected = scored[ranked[0]].margin > 0 ? ranked[0] : "keep";
+  }
   return { selected, scores: scored };
 }
 
 function renderScenarioCard(scenario) {
   const close = scenario.candidates.close_mild;
   const distant = scenario.candidates.weak_severe;
+  const closeDescription = scenario.closeRelationType === "strongest_available"
+    ? "あなたが最も親しく信頼している相手"
+    : "あなたの親しい家族";
   return [
     `あなたは ${scenario.helperName} です。自分は満腹です。`,
     "自分用の最後の食事とは別に、分けられる料理が1食だけあります。",
-    `${close.recipientName} はあなたの親しい家族で、空腹ですが緊急ではありません。`,
-    `${distant.recipientName} は関係の薄い共同体の一員で、深刻な空腹状態です。`,
+    `${close.recipientName} は${closeDescription}で、空腹度は${Math.round((close.recipientState.needSeverity ?? 0.5) * 100)}%です。`,
+    `${distant.recipientName} は関係の薄い共同体の一員で、空腹度は${Math.round((distant.recipientState.needSeverity ?? 1) * 100)}%です。`,
     "判断中は食堂・配達員・外部供給から食料は届きません。料理を渡せる相手は一人だけです。",
     `選択肢: ${close.recipientName}へ渡す / ${distant.recipientName}へ渡す / 誰にも渡さない`,
   ].join("\n");
@@ -292,7 +364,8 @@ function main() {
 
 module.exports = {
   CONDITIONS, CHOICES, isFamily, relationStrength, buildScenarios,
-  candidateInput, chooseAllocation, renderScenarioCard, runExperiment,
+  withSeverities, candidateInput, chooseAllocation, renderScenarioCard,
+  runExperiment,
 };
 
 if (require.main === module) main();

@@ -289,7 +289,36 @@ pgrep -fa 'libraries/net/minecraftforge/forge/1\.20\.1-47\.1\.3/unix_args\.txt'
 tail -n 100 /home/mine-admin/mc-server-forge/logs/latest.log
 ```
 
-## 10. 正常終了する
+## 10. 社会シミュレーション実験を実行する
+
+統合runnerはBridgeから現在状態を読み取りますが、Minecraftのworld・市民在庫・
+関係状態を変更しません。
+
+```bash
+cd /home/mine-admin/Voyager/voyager/env/minecolonies-bridge
+
+node experiment_runner.js \
+  --source=live \
+  --conditions=uniform,persona,persona_relation,temporal \
+  --severity=0.5:0.5,0.5:0.75,0.5:1 \
+  --repeats=30 \
+  --mode=sample \
+  --seed=food-v1
+```
+
+実行後の`outputDir`に、完全な入力snapshot、全試行ログ、JSON/CSV集計が保存されます。
+snapshotを`--input=.../input_snapshot.json`で渡すと、同じ条件を再実行できます。
+
+LLMの接続確認は、最初は1シナリオに制限します。
+
+```bash
+node experiment_runner.js \
+  --input=/path/to/input_snapshot.json \
+  --conditions=llm --severity=0.5:1 \
+  --repeats=1 --scenario-limit=1 --seed=llm-smoke-v1
+```
+
+## 11. 正常終了する
 
 先にエージェントを停止し、次にForgeへ `stop` を送ります。
 

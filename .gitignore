@@ -128,5 +128,7 @@ debug_*
 logs/
 plot_iter.py
 *.svg
+# Generated social-simulation snapshots and trial outputs
+voyager/env/minecolonies-bridge/experiment_results/
 # claude agent worktrees
 .claude/worktrees/
