@@ -43,6 +43,13 @@ function nutritionSeverity(band) {
   return band === "starving" ? 1 : band === "hungry" ? 0.5 : 0;
 }
 
+function stateNeedSeverity(state) {
+  if (state && typeof state.needSeverity === "number") {
+    return clamp01(state.needSeverity);
+  }
+  return nutritionSeverity(state && state.nutritionBand);
+}
+
 function isFamily(sources) {
   return (sources || []).some((source) =>
     ["partner", "parent_child", "sibling"].includes(source)
@@ -263,11 +270,11 @@ function buildCognitiveProfile(persona, context) {
   const affect = view.affect || {};
   const family = isFamily(c.sources);
   const ownNeed = clamp01(
-    nutritionSeverity(helper.nutritionBand) + (helper.sick ? 0.45 : 0) +
+    stateNeedSeverity(helper) + (helper.sick ? 0.45 : 0) +
       0.35 * (helper.stress || 0)
   );
   const otherNeed = clamp01(
-    nutritionSeverity(recipient.nutritionBand) + (recipient.sick ? 0.45 : 0)
+    stateNeedSeverity(recipient) + (recipient.sick ? 0.45 : 0)
   );
   const trust = typeof view.trust === "number" ? view.trust : 0.5;
   const affinity = typeof view.affinity === "number" ? view.affinity : 0.5;
@@ -329,5 +336,6 @@ function buildCognitiveProfile(persona, context) {
 }
 
 module.exports = {
-  SCHEMA, buildCognitiveProfile, nutritionSeverity, isFamily, clamp01, round3,
+  SCHEMA, buildCognitiveProfile, nutritionSeverity, stateNeedSeverity,
+  isFamily, clamp01, round3,
 };

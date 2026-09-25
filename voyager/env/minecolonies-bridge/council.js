@@ -80,12 +80,11 @@ const TURN_DELAY_MS = 2000;
 const CYCLE_DELAY_MS = 15000;
 const CITIZEN_VOICE_EVERY = 1;
 
-// 通常ワールド移行対応(2026-07-11): env で上書き可。未設定なら旧スーパーフラット
-// 基盤コロニーの値(200,-60,200)を維持するので既存挙動は不変。
+// env で上書き可。未設定時は、スポーン地点からすぐ観察できる原点を使う。
 const ANCHOR = {
-  x: parseInt(process.env.ANCHOR_X ?? "200", 10),
+  x: parseInt(process.env.ANCHOR_X ?? "0", 10),
   y: parseInt(process.env.ANCHOR_Y ?? "-60", 10),
-  z: parseInt(process.env.ANCHOR_Z ?? "200", 10),
+  z: parseInt(process.env.ANCHOR_Z ?? "0", 10),
 };
 
 const GOVERNORS = [
@@ -101,11 +100,63 @@ const GOVERNORS = [
   },
 ];
 
+// Shared, cross-governor memory.  A governor's private `history` only contains
+// its own previous turns, so this log is the causal bridge between agents: it
+// carries both what everybody said and what the governors actually did.
+// Keep it bounded because council.js normally runs as a resident daemon.
 const sharedChatLog = [];
+const SHARED_LOG_LIMIT = 80;
+
+function rememberSharedEvent(event) {
+  sharedChatLog.push({ ...event, t: event.t || Date.now() });
+  if (sharedChatLog.length > SHARED_LOG_LIMIT) {
+    sharedChatLog.splice(0, sharedChatLog.length - SHARED_LOG_LIMIT);
+  }
+}
+
+function renderSharedCouncilContext(events = sharedChatLog, limit = 12) {
+  const recent = events.slice(-limit);
+  if (recent.length === 0) return "（まだ会話なし）";
+  return recent.map((event) => {
+    if (event.kind === "action") {
+      const outcome = event.effective === false ? `INEFFECTIVE(${event.status})` : event.status;
+      return `${event.who}の行動: ${event.label} -> ${outcome} ${event.result || ""}`.trim();
+    }
+    return `${event.who}: ${event.text}`;
+  }).join(" | ");
+}
+
+function actionKey(action) {
+  return JSON.stringify(action);
+}
+
+// A bridge endpoint can return HTTP 200 while reporting that no state change
+// occurred (for example a blueprint that did not become pending).  Letting the
+// same stale candidate remain at priority 1 traps both governors in a loop.
+// Remove only actions whose *latest* shared result was ineffective; `wait` is
+// retained as a safe fallback. A changed live candidate naturally gets a new
+// key and becomes available immediately.
+function filterRecentlyIneffectiveCandidates(candidates, events = sharedChatLog, limit = 12) {
+  const latest = new Map();
+  for (const event of events.slice(-limit).reverse()) {
+    if (event.kind !== "action" || !event.action) continue;
+    const key = actionKey(event.action);
+    if (!latest.has(key)) latest.set(key, event.effective !== false);
+  }
+  return candidates.filter((candidate) => {
+    if (candidate.action?.action === "wait") return true;
+    return latest.get(actionKey(candidate.action)) !== false;
+  });
+}
+
+function actionResultWasEffective(res) {
+  if (res.status < 200 || res.status >= 300) return false;
+  return !/\[WARN:\s*not pending after requestUpgrade/i.test(String(res.body));
+}
 
 function sayInGame(name, message) {
   const safe = String(message).replace(/"/g, "'").slice(0, 200);
-  sharedChatLog.push({ who: name, text: safe, t: Date.now() });
+  rememberSharedEvent({ kind: "speech", who: name, text: safe });
   try {
     // O_NONBLOCK: if the server isn't reading from cmd_pipe (no reader on the
     // FIFO), writeFileSync blocks forever. Non-blocking open throws ENXIO
@@ -164,7 +215,7 @@ function extractFirstJSON(text) {
 const GOVERNOR_REPLY_SCHEMA = {
   type: "object",
   properties: {
-    say: { type: "string" },
+    say: { type: "string", maxLength: 40 },
     choice: { type: "integer" },
   },
   required: ["say", "choice"],
@@ -684,7 +735,9 @@ function buildGovernorSystemPrompt(gov) {
 async function governorTurn(gov, history, status) {
   const researchNeeds = await getResearchNeeds();
   const demand = readDemand();
-  const candidates = buildCandidates(status, researchNeeds, demand.rank);
+  const candidates = filterRecentlyIneffectiveCandidates(
+    buildCandidates(status, researchNeeds, demand.rank)
+  );
   const menu = candidates.map((c, i) => `${i}: ${c.label}`).join("\n");
   // Pre-computed hints: small models don't reliably derive these from the
   // raw status JSON, and the housing deficit drives the top-priority rule.
@@ -702,12 +755,9 @@ async function governorTurn(gov, history, status) {
   }
   // Anchor hint follows the live colony center so it stays correct after a
   // colony_watch restart that doesn't pass ANCHOR_* env (normal-world colonies
-  // are founded at their real terrain coords, not the old 200,-60,200 default).
+  // are founded at their real terrain coords, not the configured default).
   const anc = colony ? { x: colony.x, y: colony.y, z: colony.z } : ANCHOR;
-  const userMsg = `[STATE] anchor ${anc.x},${anc.y},${anc.z}\ncolonies: ${JSON.stringify(status)}${hint}\n直近の会話: ${sharedChatLog
-    .slice(-8)
-    .map((c) => `${c.who}: ${c.text}`)
-    .join(" | ")}\n[ACTIONS] 次の行動を1つ選び {"say":"<日本語で40文字以内の短い一言>","choice":<番号>} で答えること。sayに分析や長文を書かない:\n${menu}`;
+  const userMsg = `[STATE] anchor ${anc.x},${anc.y},${anc.z}\ncolonies: ${JSON.stringify(status)}${hint}\n[COUNCIL MEMORY] ${renderSharedCouncilContext()}\n直前の他の統治者の発言に提案・要望があれば、安全性と優先ルールに反しない限りchoiceに反映すること。反映しない場合はsayで短く理由を返すこと。\n[ACTIONS] 次の行動を1つ選び {"say":"<日本語で40文字以内の短い一言>","choice":<番号>} で答えること。sayに分析や長文を書かない:\n${menu}`;
   history.push({ role: "user", content: userMsg });
 
   let reply;
@@ -732,7 +782,7 @@ async function governorTurn(gov, history, status) {
     return;
   }
 
-  if (parsed.say) sayInGame(gov.name, String(parsed.say).slice(0, 60));
+  if (parsed.say) sayInGame(gov.name, String(parsed.say).slice(0, 40));
   else console.log(`[${gov.name}] reply missing say:`, jsonStr.slice(0, 200));
 
   const idx =
@@ -743,12 +793,31 @@ async function governorTurn(gov, history, status) {
   try {
     const res = await runGovernorAction(chosen.action);
     console.log(`[${gov.name}] choice ${idx} (${chosen.label}) ->`, res.status, res.body);
+    const effective = actionResultWasEffective(res);
+    rememberSharedEvent({
+      kind: "action",
+      who: gov.name,
+      label: chosen.label,
+      action: chosen.action,
+      status: res.status,
+      effective,
+      result: String(res.body).slice(0, 150),
+    });
     // Feed the outcome back into this governor's history - otherwise errors
     // (level gates, no space, research gates) are invisible and the model
     // keeps repeating the same failing choice.
     history.push({ role: "user", content: `[RESULT] ${chosen.label} -> ${res.status} ${String(res.body).slice(0, 150)}` });
   } catch (e) {
     console.log(`[${gov.name}] action failed:`, e.message);
+    rememberSharedEvent({
+      kind: "action",
+      who: gov.name,
+      label: chosen.label,
+      action: chosen.action,
+      status: "ERROR",
+      effective: false,
+      result: String(e.message).slice(0, 150),
+    });
   }
 }
 
@@ -889,7 +958,8 @@ function sleep(ms) {
 
 module.exports = {
   askLLM, buildGovernorSystemPrompt, extractFirstJSON, buildCandidates,
-  parsePlacedPosition, GOVERNORS, MODEL, GOVERNOR_REPLY_SCHEMA,
+  parsePlacedPosition, renderSharedCouncilContext,
+  filterRecentlyIneffectiveCandidates, GOVERNORS, MODEL, GOVERNOR_REPLY_SCHEMA,
 };
 
 if (require.main === module) {

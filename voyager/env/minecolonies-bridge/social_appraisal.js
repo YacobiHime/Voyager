@@ -43,6 +43,13 @@ function nutritionSeverity(band) {
   return band === "starving" ? 1 : band === "hungry" ? 0.5 : 0;
 }
 
+function stateNeedSeverity(state) {
+  if (state && typeof state.needSeverity === "number") {
+    return clamp01(state.needSeverity);
+  }
+  return nutritionSeverity(state && state.nutritionBand);
+}
+
 function isFamily(sources) {
   return (sources || []).some((s) => ["partner", "parent_child", "sibling"].includes(s));
 }
@@ -58,10 +65,10 @@ function appraiseHelpRequest(input) {
   const sociability = trait(persona, "temperament", "sociability", 0.5);
   const family = isFamily(input.sources);
   const needSeverity = clamp01(
-    nutritionSeverity(recipient.nutritionBand) + (recipient.sick ? 0.45 : 0)
+    stateNeedSeverity(recipient) + (recipient.sick ? 0.45 : 0)
   );
   const ownNeed = clamp01(
-    nutritionSeverity(helper.nutritionBand) + (helper.sick ? 0.45 : 0) +
+    stateNeedSeverity(helper) + (helper.sick ? 0.45 : 0) +
       0.35 * (helper.stress || 0)
   );
   const trust = typeof view.trust === "number" ? view.trust : 0.5;
@@ -208,4 +215,5 @@ module.exports = {
   chooseAction,
   decideHelp,
   seededUnit,
+  stateNeedSeverity,
 };

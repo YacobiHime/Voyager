@@ -1,5 +1,10 @@
 const assert = require("assert");
-const { buildCandidates, parsePlacedPosition } = require("./council.js");
+const {
+  buildCandidates,
+  parsePlacedPosition,
+  renderSharedCouncilContext,
+  filterRecentlyIneffectiveCandidates,
+} = require("./council.js");
 
 function colony(buildings) {
   return [{
@@ -65,5 +70,44 @@ assert.deepStrictEqual(
   { x: -12, y: -60, z: 34 }
 );
 assert.strictEqual(parsePlacedPosition('{"error":"no valid position"}'), null);
+
+{
+  const memory = renderSharedCouncilContext([
+    { kind: "speech", who: "Aldric", text: "次は住居を増やそう" },
+    {
+      kind: "action",
+      who: "Aldric",
+      label: "住居を新設",
+      status: 200,
+      effective: true,
+      result: "placed",
+    },
+    { kind: "speech", who: "Mira", text: "了解、次は食料を優先します" },
+  ]);
+  assert(memory.includes("Aldric: 次は住居を増やそう"));
+  assert(memory.includes("Aldricの行動: 住居を新設 -> 200 placed"));
+  assert(memory.includes("Mira: 了解、次は食料を優先します"));
+}
+
+{
+  const staleAction = { action: "requestBuild", x: 15, y: -60, z: 71 };
+  const freshAction = { action: "placeNext", block: "minecolonies:blockhutfarm" };
+  const candidates = [
+    { label: "wait", action: { action: "wait" } },
+    { label: "stale barracks", action: staleAction },
+    { label: "fresh farm", action: freshAction },
+  ];
+  const filtered = filterRecentlyIneffectiveCandidates(candidates, [{
+    kind: "action",
+    who: "Aldric",
+    action: staleAction,
+    status: 200,
+    effective: false,
+  }]);
+  assert.deepStrictEqual(filtered.map((candidate) => candidate.action), [
+    { action: "wait" },
+    freshAction,
+  ]);
+}
 
 console.log("ALL PASS (council build governor)");

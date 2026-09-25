@@ -989,10 +989,14 @@ async function warehouseJanitor(colony, cycle) {
 // visitors, 2026-07-08). Rescue any visitor 5+ blocks above ground by
 // teleporting them to the tavern forecourt. Citizens are NOT touched
 // (builders legitimately work at height).
-const VISITOR_RESCUE_SPOT = "171 -60 228"; // in front of tavern1
-function rescueElevatedVisitors() {
+function rescueElevatedVisitors(colonies) {
+  const colony = colonies.find((c) => c.id === 1) || colonies[0];
+  if (!colony) return;
+  // Keep the historical forecourt offset, but derive it from the active
+  // colony instead of teleporting visitors to the retired 200,-60,200 map.
+  const rescueSpot = `${colony.x - 29} ${colony.y} ${colony.z + 28}`;
   consoleCmd(
-    `execute as @e[type=minecolonies:visitor,y=-55,dy=60] at @s run tp @s ${VISITOR_RESCUE_SPOT}`
+    `execute as @e[type=minecolonies:visitor,y=${colony.y + 5},dy=60] at @s run tp @s ${rescueSpot}`
   );
 }
 
@@ -1000,7 +1004,6 @@ async function loop() {
   let cycle = 0;
   while (true) {
     cycle++;
-    rescueElevatedVisitors();
     // Decay the demand tally into a rolling ~30-cycle window, then publish.
     for (const [item, cnt] of demandTally) {
       const d = cnt * 0.95;
@@ -1009,6 +1012,7 @@ async function loop() {
     if (cycle % 10 === 0) writeDemand();
     try {
       const colonies = await getStatus();
+      rescueElevatedVisitors(colonies);
       let totalResolved = 0;
       // Tapered items still seen requested this cycle - used to reset the
       // starvation guard for items the economy has caught up on.

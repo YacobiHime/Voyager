@@ -80,6 +80,48 @@ node food_allocation_scenario.js \
 
 runnerはoffline専用でBridge APIを呼ばず、Minecraftのworldや市民在庫を変更しない。
 
+## 統合実験runner（MVP）
+
+`experiment_runner.js`は、severity gradient、複数seedの反復、条件間の共通乱数、
+試行JSONL、JSON/CSV集計、入力snapshotを1コマンドで生成する。Minecraftの
+`/status`は読み取るだけで、worldは変更しない。
+
+```bash
+cd /home/mine-admin/Voyager/voyager/env/minecolonies-bridge
+node experiment_runner.js \
+  --source=live \
+  --conditions=uniform,persona,persona_relation,temporal \
+  --severity=0.5:0.5,0.5:0.75,0.5:1 \
+  --repeats=30 --mode=sample --seed=food-v1
+```
+
+出力先に`input_snapshot.json`、`trials.jsonl`、`summary.json`、`summary.csv`が作られる。
+同じsnapshotとseedの実行は`recordsSha256`が一致する。
+
+```bash
+node experiment_runner.js \
+  --input=experiment_results/<run>/input_snapshot.json \
+  --conditions=uniform,persona,persona_relation,temporal \
+  --severity=0.5:0.5,0.5:0.75,0.5:1 \
+  --repeats=30 --mode=sample --seed=food-v1
+```
+
+LLM条件は明示的に`llm`を指定した時だけ、Councilと同じローカルOllamaを呼ぶ。
+まず1件で接続を確認する。
+
+```bash
+node experiment_runner.js \
+  --input=experiment_results/<run>/input_snapshot.json \
+  --conditions=llm --severity=0.5:1 --repeats=1 --scenario-limit=1
+```
+
+### 観測データ不足時の扱い
+
+ライブ`/status`に家族・住居・共同職場の辺が十分ない場合、runnerは
+`deterministic-synthetic-ring-v1`をsnapshotに付与し、親しい接点と弱い接点を
+決定論的に補う。これは実測関係ではなく実験操作である。実関係のみを必須にする場合は
+`--require-family=true --synthetic-topology=never`を指定し、条件不足時に失敗させる。
+
 ## ライブ試験へ進む条件
 
 1. 空腹差の段階とappraisal係数を、結果を見る前に固定する。
